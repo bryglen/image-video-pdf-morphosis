@@ -14,6 +14,9 @@ env/
 # Runtime temp files (per-job converter scratch; auto-created by the server)
 tmp/
 
+# Design docs / plans (kept local, not published)
+docs/
+
 # Claude Code local (personal) settings
 **/.claude/settings.local.json
 
