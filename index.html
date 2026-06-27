@@ -1,0 +1,1316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Media Converter</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* Dark theme (default) */
+    :root {
+      --bg: #0f0f11;
+      --surface: #18181b;
+      --surface-2: #27272a;
+      --surface-3: #3f3f46;
+      --border: #27272a;
+      --inset: #0f0f11;
+      --drop-hover: #1f1f23;
+      --remove-hover-bg: #1c1c1f;
+      --text: #e4e4e7;
+      --text-strong: #d4d4d8;
+      --text-muted: #a1a1aa;
+      --text-dim: #71717a;
+      --text-faint: #52525b;
+    }
+
+    /* Light theme */
+    html[data-theme="light"] {
+      --bg: #f5f5f7;
+      --surface: #ffffff;
+      --surface-2: #ececef;
+      --surface-3: #dcdce0;
+      --border: #d8d8dc;
+      --inset: #fafafb;
+      --drop-hover: #f0f0f2;
+      --remove-hover-bg: #f4e2e2;
+      --text: #18181b;
+      --text-strong: #27272a;
+      --text-muted: #52525b;
+      --text-dim: #6b6b73;
+      --text-faint: #9a9aa2;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 16px 80px;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 4px; }
+    .subtitle { color: var(--text-dim); font-size: 0.875rem; margin-bottom: 28px; }
+
+    .theme-toggle {
+      position: fixed; top: 14px; right: 14px;
+      width: 38px; height: 38px; border-radius: 9px;
+      background: var(--surface); border: 1px solid var(--border);
+      color: var(--text); font-size: 1.05rem; line-height: 1; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      z-index: 20; transition: background 0.15s, border-color 0.15s;
+    }
+    .theme-toggle:hover { background: var(--surface-2); }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 28px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 4px;
+      width: 100%;
+      max-width: 680px;
+    }
+
+    .tab-btn {
+      flex: 1;
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      border-radius: 7px;
+      padding: 8px 0;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+    .tab-btn.active { background: var(--surface-2); color: var(--text); }
+    .tab-btn:hover:not(.active) { color: var(--text-muted); }
+
+    .tab-panel { display: none; width: 100%; max-width: 680px; }
+    .tab-panel.active { display: block; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      width: 100%;
+      overflow: hidden;
+    }
+
+    .drop-zone {
+      padding: 48px 32px;
+      text-align: center;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s;
+      position: relative;
+    }
+    .drop-zone:hover, .drop-zone.drag-over { background: var(--drop-hover); }
+    .drop-zone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .drop-icon  { font-size: 2.5rem; margin-bottom: 12px; line-height: 1; }
+    .drop-label { font-size: 1rem; font-weight: 500; color: var(--text-strong); margin-bottom: 4px; }
+    .drop-hint  { font-size: 0.8rem; color: var(--text-faint); }
+
+    .options-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .option-label {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+      min-width: 52px;
+    }
+
+    .fmt-group { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    .fmt-btn {
+      background: var(--surface-2);
+      border: 1px solid var(--surface-3);
+      color: var(--text-muted);
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.12s;
+      font-family: inherit;
+      letter-spacing: 0.02em;
+    }
+    .fmt-btn:hover  { background: var(--surface-3); color: var(--text); }
+    .fmt-btn.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+
+    .pages-input {
+      padding: 6px 10px; border-radius: 6px;
+      border: 1px solid var(--surface-3); background: var(--surface-2);
+      color: var(--text); width: 180px; font-size: 14px;
+    }
+    .pages-input:focus { outline: none; border-color: #2563eb; }
+    .pdf-thumbs { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+    .pdf-thumb {
+      position: relative; border: 2px solid transparent; border-radius: 6px;
+      cursor: pointer; padding: 0; background: none; line-height: 0;
+    }
+    .pdf-thumb img {
+      width: 90px; height: auto; display: block; border-radius: 4px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, .25); opacity: .4; transition: opacity .12s;
+    }
+    .pdf-thumb.selected { border-color: #2563eb; }
+    .pdf-thumb.selected img { opacity: 1; }
+    .pdf-thumb .pg-num {
+      position: absolute; bottom: 4px; right: 6px; font-size: 11px;
+      background: rgba(0, 0, 0, .6); color: #fff; padding: 1px 5px; border-radius: 8px;
+    }
+    .pdf-sections { display: flex; flex-direction: column; gap: 18px; padding: 16px 24px; }
+    .pdf-section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+    .pdf-section-name { font-size: 13px; color: var(--text-muted); font-weight: 600; word-break: break-all; }
+
+    .lossless-wrap {
+      display: none;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+    .lossless-wrap.visible { display: flex; }
+    .lossless-wrap input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; accent-color: #2563eb; }
+
+    .pdf-select-btns { display: flex; gap: 4px; }
+    .pdf-sel-btn {
+      background: var(--surface-2); border: 1px solid var(--surface-3);
+      color: var(--text-muted); border-radius: 5px; padding: 3px 8px;
+      font-size: 0.75rem; font-weight: 500; cursor: pointer; font-family: inherit;
+      transition: all 0.12s;
+    }
+    .pdf-sel-btn:hover { background: var(--surface-3); color: var(--text); }
+
+    .global-options {
+      display: flex;
+      justify-content: flex-end;
+      padding: 0 0 10px;
+    }
+
+    .queue { padding: 16px 24px; }
+    .queue-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .queue-title { font-size: 0.8rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+
+    .convert-all-btn {
+      background: #2563eb; color: #fff; border: none; border-radius: 8px;
+      padding: 7px 16px; font-size: 0.825rem; font-weight: 600; cursor: pointer;
+      font-family: inherit; transition: background 0.12s;
+    }
+    .convert-all-btn:hover    { background: #1d4ed8; }
+    .convert-all-btn:disabled { background: var(--surface-2); color: var(--text-faint); cursor: not-allowed; }
+
+    .file-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .file-item {
+      background: var(--inset);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .file-thumb {
+      width: 40px; height: 40px; object-fit: cover; border-radius: 6px;
+      background: var(--surface-2); flex-shrink: 0;
+    }
+    .file-icon {
+      width: 40px; height: 40px; border-radius: 6px; background: var(--surface-2);
+      flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+      font-size: 1.3rem; line-height: 1;
+    }
+
+    .file-info { flex: 1; min-width: 0; }
+    .file-name {
+      font-size: 0.85rem; font-weight: 500; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; color: var(--text-strong);
+    }
+    .file-meta      { font-size: 0.75rem; color: var(--text-faint); margin-top: 2px; }
+    .file-meta.warn { color: #f97316; }
+
+    .file-status    { font-size: 0.75rem; white-space: nowrap; flex-shrink: 0; }
+    .status-pending { color: var(--text-dim); }
+    .status-working { color: #f59e0b; }
+    .status-error   { color: #ef4444; }
+    .status-done    { color: #22c55e; }
+
+    .dl-btn {
+      background: #22c55e; color: #000; border: none; border-radius: 6px;
+      padding: 5px 11px; font-size: 0.775rem; font-weight: 600; cursor: pointer;
+      font-family: inherit; text-decoration: none; display: inline-block;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .dl-btn:hover { background: #16a34a; }
+
+    .remove-btn {
+      background: none; border: none; color: var(--text-faint); cursor: pointer;
+      font-size: 1rem; line-height: 1; padding: 2px 4px; border-radius: 4px; flex-shrink: 0;
+    }
+    .remove-btn:hover { color: #ef4444; background: var(--remove-hover-bg); }
+
+    .item-convert-btn {
+      background: var(--surface-2); border: 1px solid var(--surface-3);
+      color: var(--text-muted); border-radius: 6px; padding: 5px 11px;
+      font-size: 0.775rem; font-weight: 600; cursor: pointer; font-family: inherit;
+      white-space: nowrap; flex-shrink: 0; transition: all 0.12s;
+    }
+    .item-convert-btn:hover { background: #2563eb; border-color: #2563eb; color: #fff; }
+    .item-convert-btn:disabled {
+      background: var(--surface-2); border-color: var(--surface-3);
+      color: var(--text-faint); cursor: not-allowed;
+    }
+
+    .item-cancel-btn {
+      background: none; border: 1px solid var(--surface-3); color: var(--text-muted);
+      border-radius: 6px; padding: 4px 10px; font-size: 0.75rem; font-weight: 600;
+      cursor: pointer; font-family: inherit; white-space: nowrap; flex-shrink: 0;
+    }
+    .item-cancel-btn:hover { color: #ef4444; border-color: #ef4444; }
+
+    .progress-bar-wrap {
+      height: 2px; background: var(--surface-2); border-radius: 2px;
+      margin-top: 6px; overflow: hidden; display: none;
+    }
+    .progress-bar-wrap.visible { display: block; }
+    .progress-bar {
+      height: 100%; background: #f59e0b; width: 0%;
+      transition: width 0.3s; border-radius: 2px;
+    }
+  </style>
+  <script>
+    // Apply saved theme before paint to avoid a flash (default is dark).
+    (function () {
+      try { if (localStorage.getItem('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+
+<button class="theme-toggle" id="themeToggle" aria-label="Toggle light/dark theme">☀️</button>
+
+<h1>Media Converter</h1>
+<p class="subtitle">Images, Videos &amp; PDFs — Pillow · FFmpeg · PyMuPDF</p>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="image">&#128247; Image</button>
+  <button class="tab-btn" data-tab="video">&#127916; Video</button>
+  <button class="tab-btn" data-tab="pdf">&#128196; PDF</button>
+</div>
+<div class="global-options">
+  <label class="lossless-wrap visible">
+    <input type="checkbox" id="overwriteCheck" />
+    Overwrite originals
+  </label>
+</div>
+
+<!-- IMAGE TAB -->
+<div id="tab-image" class="tab-panel active">
+  <div class="card">
+    <div class="drop-zone" id="imgDropZone">
+      <input type="file" id="imgFileInput" multiple accept="image/*,.heic,.heif" />
+      <div class="drop-icon">&#128247;</div>
+      <div class="drop-label">Drop images here or click to browse</div>
+      <div class="drop-hint">Supports HEIC, HEIF, WebP, JPG, PNG, TIFF, BMP, GIF</div>
+    </div>
+
+    <div class="options-row">
+      <span class="option-label">Convert to</span>
+      <div class="fmt-group" id="imgFmtGroup">
+        <button class="fmt-btn" data-fmt="webp">WebP</button>
+        <button class="fmt-btn" data-fmt="avif">AVIF</button>
+        <button class="fmt-btn" data-fmt="heic">HEIC</button>
+        <button class="fmt-btn active" data-fmt="jpg">JPG</button>
+        <button class="fmt-btn" data-fmt="png">PNG</button>
+        <button class="fmt-btn" data-fmt="tiff">TIFF</button>
+        <button class="fmt-btn" data-fmt="bmp">BMP</button>
+      </div>
+      <label class="lossless-wrap" id="imgLosslessWrap">
+        <input type="checkbox" id="imgLosslessCheck" checked />
+        Lossless
+      </label>
+    </div>
+
+    <div class="options-row">
+      <span class="option-label">Resolution</span>
+      <div class="fmt-group" id="imgResGroup">
+        <button class="fmt-btn active" data-res="original">Original</button>
+        <button class="fmt-btn" data-res="2160p">4K</button>
+        <button class="fmt-btn" data-res="1440p">1440p</button>
+        <button class="fmt-btn" data-res="1080p">1080p</button>
+        <button class="fmt-btn" data-res="720p">720p</button>
+        <button class="fmt-btn" data-res="480p">480p</button>
+      </div>
+    </div>
+
+    <div class="queue" id="imgQueue" style="display:none">
+      <div class="queue-header">
+        <span class="queue-title">Files</span>
+        <button class="convert-all-btn" id="imgConvertAllBtn">Convert all</button>
+      </div>
+      <div class="file-list" id="imgFileList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- VIDEO TAB -->
+<div id="tab-video" class="tab-panel">
+  <div class="card">
+    <div class="drop-zone" id="vidDropZone">
+      <input type="file" id="vidFileInput" multiple accept="video/*,.mkv,.avi" />
+      <div class="drop-icon">&#127916;</div>
+      <div class="drop-label">Drop videos here or click to browse</div>
+      <div class="drop-hint">Supports MP4, MOV, AVI, MKV, WebM — converted via FFmpeg</div>
+    </div>
+
+    <div class="options-row">
+      <span class="option-label">Format</span>
+      <div class="fmt-group" id="vidFmtGroup">
+        <button class="fmt-btn active" data-fmt="mp4">MP4</button>
+        <button class="fmt-btn" data-fmt="webm">WebM</button>
+        <button class="fmt-btn" data-fmt="mov">MOV</button>
+      </div>
+    </div>
+
+    <div class="options-row">
+      <span class="option-label">Speed</span>
+      <div class="fmt-group" id="vidSpeedGroup">
+        <button class="fmt-btn" data-speed="0.5">0.5×</button>
+        <button class="fmt-btn active" data-speed="1">1×</button>
+        <button class="fmt-btn" data-speed="1.25">1.25×</button>
+        <button class="fmt-btn" data-speed="1.5">1.5×</button>
+        <button class="fmt-btn" data-speed="2">2×</button>
+        <button class="fmt-btn" data-speed="2.5">2.5×</button>
+      </div>
+    </div>
+
+    <div class="options-row">
+      <span class="option-label">Quality</span>
+      <div class="fmt-group" id="vidQualGroup">
+        <button class="fmt-btn" data-quality="nearlossless">Near-lossless</button>
+        <button class="fmt-btn active" data-quality="balanced">Balanced</button>
+        <button class="fmt-btn" data-quality="small">Small</button>
+      </div>
+    </div>
+
+    <div class="options-row">
+      <span class="option-label">Resolution</span>
+      <div class="fmt-group" id="vidResGroup">
+        <button class="fmt-btn active" data-res="original">Original</button>
+        <button class="fmt-btn" data-res="2160p">4K</button>
+        <button class="fmt-btn" data-res="1440p">1440p</button>
+        <button class="fmt-btn" data-res="1080p">1080p</button>
+        <button class="fmt-btn" data-res="720p">720p</button>
+        <button class="fmt-btn" data-res="480p">480p</button>
+      </div>
+    </div>
+
+    <div class="queue" id="vidQueue" style="display:none">
+      <div class="queue-header">
+        <span class="queue-title">Files</span>
+        <button class="convert-all-btn" id="vidConvertAllBtn">Convert all</button>
+      </div>
+      <div class="file-list" id="vidFileList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- PDF TAB -->
+<div id="tab-pdf" class="tab-panel">
+  <div class="card">
+    <div class="options-row">
+      <span class="option-label">Mode</span>
+      <div class="fmt-group" id="pdfModeGroup">
+        <button class="fmt-btn active" data-mode="img2pdf">Images &#8594; PDF</button>
+        <button class="fmt-btn" data-mode="pdf2img">PDF &#8594; Images</button>
+        <button class="fmt-btn" data-mode="pdf2pages">PDF &#8594; Pages</button>
+        <button class="fmt-btn" data-mode="compress">Compress</button>
+      </div>
+    </div>
+
+    <div class="drop-zone" id="pdfDropZone">
+      <input type="file" id="pdfFileInput" multiple accept="image/*,.heic,.heif" />
+      <div class="drop-icon">&#128196;</div>
+      <div class="drop-label" id="pdfDropLabel">Drop images here or click to browse</div>
+      <div class="drop-hint" id="pdfDropHint">Combine images into a PDF</div>
+    </div>
+
+    <div class="options-row" id="pdfImgOpts">
+      <span class="option-label">Output</span>
+      <label class="lossless-wrap visible" id="pdfCombineWrap">
+        <input type="checkbox" id="pdfCombineCheck" checked />
+        Combine into one PDF
+      </label>
+    </div>
+
+    <div class="options-row" id="pdfFmtRow" style="display:none">
+      <span class="option-label">Format</span>
+      <div class="fmt-group" id="pdfFmtGroup">
+        <button class="fmt-btn active" data-fmt="png">PNG</button>
+        <button class="fmt-btn" data-fmt="jpg">JPG</button>
+      </div>
+    </div>
+
+    <div class="options-row" id="pdfDpiRow" style="display:none">
+      <span class="option-label">DPI</span>
+      <div class="fmt-group" id="pdfDpiGroup">
+        <button class="fmt-btn" data-dpi="72">72</button>
+        <button class="fmt-btn active" data-dpi="150">150</button>
+        <button class="fmt-btn" data-dpi="300">300</button>
+      </div>
+    </div>
+
+    <div class="options-row" id="pdfPagesOutRow" style="display:none">
+      <span class="option-label">Output</span>
+      <div class="fmt-group" id="pdfPagesOutGroup">
+        <button class="fmt-btn active" data-combine="true">One combined PDF</button>
+        <button class="fmt-btn" data-combine="false">One PDF per page</button>
+      </div>
+    </div>
+
+    <div id="pdfThumbs" class="pdf-sections" style="display:none"></div>
+
+    <div class="options-row" id="pdfCompressQualityRow" style="display:none">
+      <span class="option-label">Quality</span>
+      <div class="fmt-group" id="pdfCompressQualityGroup">
+        <button class="fmt-btn" data-q="small">Small</button>
+        <button class="fmt-btn active" data-q="balanced">Balanced</button>
+        <button class="fmt-btn" data-q="high">High</button>
+      </div>
+    </div>
+
+    <div class="options-row" id="pdfCompressTargetRow" style="display:none">
+      <span class="option-label">Target size</span>
+      <input type="number" id="pdfTargetInput" class="pages-input" min="0" step="0.1" placeholder="optional" />
+      <span class="option-label" style="margin-left:6px">MB</span>
+    </div>
+
+    <div id="pdfCompressHint" class="drop-hint" style="display:none; margin-top:10px"></div>
+
+    <div class="queue" id="pdfQueue" style="display:none">
+      <div class="queue-header">
+        <span class="queue-title" id="pdfQueueTitle">Files</span>
+        <button class="convert-all-btn" id="pdfConvertAllBtn">Convert</button>
+      </div>
+      <div class="file-list" id="pdfFileList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Tabs ───────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+  });
+});
+
+// ── Overwrite toggle ───────────────────────────────────────────────────────
+const overwriteCheck = document.getElementById('overwriteCheck');
+(function () {
+  try { overwriteCheck.checked = localStorage.getItem('overwrite') === 'true'; } catch (e) {}
+})();
+overwriteCheck.addEventListener('change', () => {
+  try { localStorage.setItem('overwrite', overwriteCheck.checked); } catch (e) {}
+});
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function fmtSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function makeOptionPicker(groupEl, onPick) {
+  groupEl.addEventListener('click', e => {
+    const btn = e.target.closest('.fmt-btn');
+    if (!btn) return;
+    groupEl.querySelectorAll('.fmt-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    onPick(btn);
+  });
+}
+
+// ── Image converter ────────────────────────────────────────────────────────
+const imgDropZone   = document.getElementById('imgDropZone');
+const imgFileInput  = document.getElementById('imgFileInput');
+const imgLossWrap   = document.getElementById('imgLosslessWrap');
+const imgLossCheck  = document.getElementById('imgLosslessCheck');
+const imgQueue      = document.getElementById('imgQueue');
+const imgFileList   = document.getElementById('imgFileList');
+const imgConvertBtn = document.getElementById('imgConvertAllBtn');
+
+let imgFmt = 'jpg', imgRes = 'original', imgFiles = [], imgNextId = 0;
+
+makeOptionPicker(document.getElementById('imgFmtGroup'), btn => {
+  imgFmt = btn.dataset.fmt;
+  imgLossWrap.classList.toggle('visible', imgFmt === 'webp');
+});
+makeOptionPicker(document.getElementById('imgResGroup'), btn => { imgRes = btn.dataset.res; });
+
+imgDropZone.addEventListener('dragover',  e => { e.preventDefault(); imgDropZone.classList.add('drag-over'); });
+imgDropZone.addEventListener('dragleave', () => imgDropZone.classList.remove('drag-over'));
+imgDropZone.addEventListener('drop', e => { e.preventDefault(); imgDropZone.classList.remove('drag-over'); imgAddFiles([...e.dataTransfer.files]); });
+imgFileInput.addEventListener('change', () => { imgAddFiles([...imgFileInput.files]); imgFileInput.value = ''; });
+
+function imgAddFiles(fs) {
+  fs.forEach(f => {
+    const id = imgNextId++;
+    imgFiles.push({ id, file: f, objectURL: URL.createObjectURL(f), done: false });
+    imgRenderItem(imgFiles.at(-1));
+  });
+  imgQueue.style.display = imgFiles.length ? '' : 'none';
+}
+
+function imgRenderItem(item) {
+  const el = document.createElement('div');
+  el.className = 'file-item'; el.id = `img-item-${item.id}`;
+  el.innerHTML = `
+    <img class="file-thumb" src="${item.objectURL}" alt="" />
+    <div class="file-info">
+      <div class="file-name"></div>
+      <div class="file-meta" id="img-meta-${item.id}">${fmtSize(item.file.size)}</div>
+      <div class="progress-bar-wrap" id="img-pw-${item.id}"><div class="progress-bar" id="img-pb-${item.id}"></div></div>
+    </div>
+    <button class="item-convert-btn" id="img-cv-${item.id}">Convert</button>
+    <span class="file-status status-pending" id="img-st-${item.id}">Pending</span>
+    <button class="remove-btn" data-id="${item.id}">&#x2715;</button>`;
+  el.querySelector('.file-name').textContent = item.file.name;   // textContent, not innerHTML (XSS-safe)
+  el.querySelector('.item-convert-btn').addEventListener('click', () => imgConvert(item));
+  el.querySelector('.remove-btn').addEventListener('click', () => imgRemove(item.id));
+  imgFileList.appendChild(el);
+}
+
+function imgRemove(id) {
+  const item = imgFiles.find(f => f.id === id);
+  if (item) {
+    if (item.objectURL) URL.revokeObjectURL(item.objectURL);
+    if (item.downloadUrl) URL.revokeObjectURL(item.downloadUrl);
+  }
+  imgFiles = imgFiles.filter(f => f.id !== id);
+  document.getElementById(`img-item-${id}`)?.remove();
+  if (!imgFiles.length) imgQueue.style.display = 'none';
+}
+
+function imgSetStatus(id, cls, text) {
+  const el = document.getElementById(`img-st-${id}`);
+  if (el) { el.className = `file-status status-${cls}`; el.textContent = text; }
+}
+
+async function imgConvert(item) {
+  if (item.converting) return;
+  item.converting = true;
+  const cvBtn = document.getElementById(`img-cv-${item.id}`);
+  if (cvBtn) cvBtn.disabled = true;
+  imgSetStatus(item.id, 'working', 'Converting…');
+  const pw = document.getElementById(`img-pw-${item.id}`);
+  const pb = document.getElementById(`img-pb-${item.id}`);
+  pw?.classList.add('visible');
+
+  let pct = 0;
+  const tick = setInterval(() => { pct = Math.min(pct + 5, 80); if (pb) pb.style.width = pct + '%'; }, 100);
+
+  const form = new FormData();
+  form.append('file', item.file);
+  form.append('format', imgFmt);
+  form.append('lossless', imgLossCheck.checked ? 'true' : 'false');
+  form.append('resolution', imgRes);
+
+  try {
+    const res = await fetch('/api/image/convert', { method: 'POST', body: form });
+    clearInterval(tick);
+    if (pb) pb.style.width = '100%';
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      imgSetStatus(item.id, 'error', 'Error');
+      const m = document.getElementById(`img-meta-${item.id}`);
+      if (m) m.textContent = err.error || 'Conversion failed';
+      return;
+    }
+
+    const blob   = await res.blob();
+    const before = parseInt(res.headers.get('X-Before-Size') || item.file.size, 10);
+    const after  = parseInt(res.headers.get('X-After-Size')  || blob.size, 10);
+    const bigger = after > before;
+    const saved  = Math.abs((before - after) / before * 100).toFixed(1);
+
+    item.done = true;
+    pw?.classList.remove('visible');
+
+    const m = document.getElementById(`img-meta-${item.id}`);
+    if (m) { m.textContent = `${fmtSize(before)} → ${fmtSize(after)} (${bigger ? '+' : ''}${saved}% ${bigger ? 'larger' : 'saved'})`; if (bigger) m.classList.add('warn'); }
+
+    const stem = item.file.name.replace(/\.[^.]+$/, '');
+    const ext  = imgFmt === 'jpeg' ? 'jpg' : imgFmt;
+    if (item.downloadUrl) URL.revokeObjectURL(item.downloadUrl);   // revoke prior blob on re-convert
+    item.downloadUrl = URL.createObjectURL(blob);
+    const a    = Object.assign(document.createElement('a'), { className: 'dl-btn', href: item.downloadUrl, download: overwriteCheck.checked ? `${stem}.${ext}` : `${stem}_converted.${ext}`, textContent: 'Download' });
+    const st   = document.getElementById(`img-st-${item.id}`);
+    if (st) { st.innerHTML = ''; st.appendChild(a); }
+  } catch {
+    clearInterval(tick);
+    imgSetStatus(item.id, 'error', 'Failed');
+    const m = document.getElementById(`img-meta-${item.id}`);
+    if (m) m.textContent = 'Could not reach server — is server.py running?';
+  } finally {
+    item.converting = false;
+    if (cvBtn) cvBtn.disabled = false;
+  }
+}
+
+imgConvertBtn.addEventListener('click', async () => {
+  const pending = imgFiles.filter(f => !f.done);
+  if (!pending.length) return;
+  imgConvertBtn.disabled = true;
+  for (const item of pending) await imgConvert(item);
+  imgConvertBtn.disabled = false;
+});
+
+// ── Video converter ────────────────────────────────────────────────────────
+const vidDropZone   = document.getElementById('vidDropZone');
+const vidFileInput  = document.getElementById('vidFileInput');
+const vidQueue      = document.getElementById('vidQueue');
+const vidFileList   = document.getElementById('vidFileList');
+const vidConvertBtn = document.getElementById('vidConvertAllBtn');
+
+let vidFmt = 'mp4', vidSpeed = '1', vidQuality = 'balanced', vidRes = 'original';
+let vidFiles = [], vidNextId = 0;
+
+makeOptionPicker(document.getElementById('vidFmtGroup'),   btn => { vidFmt     = btn.dataset.fmt;     });
+makeOptionPicker(document.getElementById('vidSpeedGroup'), btn => { vidSpeed   = btn.dataset.speed;   });
+makeOptionPicker(document.getElementById('vidQualGroup'),  btn => { vidQuality = btn.dataset.quality; });
+makeOptionPicker(document.getElementById('vidResGroup'), btn => { vidRes = btn.dataset.res; });
+
+vidDropZone.addEventListener('dragover',  e => { e.preventDefault(); vidDropZone.classList.add('drag-over'); });
+vidDropZone.addEventListener('dragleave', () => vidDropZone.classList.remove('drag-over'));
+vidDropZone.addEventListener('drop', e => { e.preventDefault(); vidDropZone.classList.remove('drag-over'); vidAddFiles([...e.dataTransfer.files]); });
+vidFileInput.addEventListener('change', () => { vidAddFiles([...vidFileInput.files]); vidFileInput.value = ''; });
+
+function vidAddFiles(fs) {
+  fs.forEach(f => {
+    const id = vidNextId++;
+    vidFiles.push({ id, file: f, done: false, converting: false });
+    vidRenderItem(vidFiles.at(-1));
+  });
+  vidQueue.style.display = vidFiles.length ? '' : 'none';
+}
+
+function vidRenderItem(item) {
+  const el = document.createElement('div');
+  el.className = 'file-item'; el.id = `vid-item-${item.id}`;
+  el.innerHTML = `
+    <div class="file-icon">&#127916;</div>
+    <div class="file-info">
+      <div class="file-name"></div>
+      <div class="file-meta" id="vid-meta-${item.id}">${fmtSize(item.file.size)}</div>
+      <div class="progress-bar-wrap" id="vid-pw-${item.id}"><div class="progress-bar" id="vid-pb-${item.id}"></div></div>
+    </div>
+    <button class="item-convert-btn" id="vid-cv-${item.id}">Convert</button>
+    <span class="file-status status-pending" id="vid-st-${item.id}">Pending</span>
+    <button class="remove-btn" data-id="${item.id}">&#x2715;</button>`;
+  el.querySelector('.file-name').textContent = item.file.name;   // textContent, not innerHTML (XSS-safe)
+  el.querySelector('.item-convert-btn').addEventListener('click', () => vidConvert(item));
+  el.querySelector('.remove-btn').addEventListener('click', () => vidRemove(item.id));
+  vidFileList.appendChild(el);
+}
+
+function vidRemove(id) {
+  const item = vidFiles.find(f => f.id === id);
+  // Cancel a still-running job so the server frees its ffmpeg process + temp files.
+  if (item && item.converting && item.jobId) {
+    item.cancelled = true;
+    fetch(`/api/video/cancel/${item.jobId}`, { method: 'POST' }).catch(() => {});
+  }
+  vidFiles = vidFiles.filter(f => f.id !== id);
+  document.getElementById(`vid-item-${id}`)?.remove();
+  if (!vidFiles.length) vidQueue.style.display = 'none';
+}
+
+function vidSetStatus(id, cls, text) {
+  const el = document.getElementById(`vid-st-${id}`);
+  if (el) { el.className = `file-status status-${cls}`; el.textContent = text; }
+}
+
+async function vidCancel(item) {
+  item.cancelled = true;
+  vidSetStatus(item.id, 'pending', 'Cancelling…');
+  if (item.jobId) { try { await fetch(`/api/video/cancel/${item.jobId}`, { method: 'POST' }); } catch {} }
+}
+
+function vidShowCancelBtn(item) {
+  const st = document.getElementById(`vid-st-${item.id}`);
+  if (!st) return;
+  st.className = 'file-status status-working';
+  st.innerHTML = '';
+  const btn = document.createElement('button');
+  btn.className = 'item-cancel-btn';
+  btn.textContent = 'Cancel';
+  btn.addEventListener('click', () => vidCancel(item));
+  st.appendChild(btn);
+}
+
+async function vidConvert(item) {
+  if (item.converting) return;
+  item.converting = true;
+  item.cancelled = false;
+  item.jobId = null;
+  const cvBtn = document.getElementById(`vid-cv-${item.id}`);
+  if (cvBtn) cvBtn.disabled = true;
+  vidSetStatus(item.id, 'working', 'Uploading…');
+
+  const form = new FormData();
+  form.append('file', item.file);
+  form.append('format', vidFmt);
+  form.append('speed', vidSpeed);
+  form.append('quality', vidQuality);
+    form.append('resolution', vidRes);
+
+  try {
+    const uploadRes = await fetch('/api/video/convert', { method: 'POST', body: form });
+    if (!uploadRes.ok) {
+      const err = await uploadRes.json().catch(() => ({}));
+      vidSetStatus(item.id, 'error', 'Upload failed');
+      const m = document.getElementById(`vid-meta-${item.id}`);
+      if (m) m.textContent = err.error || 'Upload failed';
+      item.converting = false; return;
+    }
+
+    const { job_id, before_size } = await uploadRes.json();
+    item.jobId = job_id;
+
+    // If the user hit Cancel during upload, stop now.
+    if (item.cancelled) {
+      try { await fetch(`/api/video/cancel/${job_id}`, { method: 'POST' }); } catch {}
+      vidSetStatus(item.id, 'pending', 'Cancelled'); item.converting = false; return;
+    }
+
+    vidShowCancelBtn(item);
+
+    const pw = document.getElementById(`vid-pw-${item.id}`);
+    const pb = document.getElementById(`vid-pb-${item.id}`);
+    pw?.classList.add('visible');
+
+    while (true) {
+      await sleep(600);
+      if (item.cancelled) {
+        pw?.classList.remove('visible');
+        vidSetStatus(item.id, 'pending', 'Cancelled'); item.converting = false; return;
+      }
+      const sr = await fetch(`/api/video/status/${job_id}`);
+      if (!sr.ok) {
+        // After a cancel the job is gone, so a 404 here is expected — not an error.
+        if (item.cancelled) { pw?.classList.remove('visible'); item.converting = false; return; }
+        vidSetStatus(item.id, 'error', 'Status check failed'); item.converting = false; return;
+      }
+
+      const { status, progress, error, after_size } = await sr.json();
+      if (pb) pb.style.width = progress + '%';
+
+      if (status === 'done') {
+        if (pb) pb.style.width = '100%';
+        pw?.classList.remove('visible');
+
+        const m = document.getElementById(`vid-meta-${item.id}`);
+        if (m && after_size != null) {
+          const bigger = after_size > before_size;
+          const saved  = Math.abs((before_size - after_size) / before_size * 100).toFixed(1);
+          m.textContent = `${fmtSize(before_size)} → ${fmtSize(after_size)} (${bigger ? '+' : ''}${saved}% ${bigger ? 'larger' : 'saved'})`;
+          if (bigger) m.classList.add('warn');
+        }
+
+        item.done = true; item.converting = false;
+
+        const stem = item.file.name.replace(/\.[^.]+$/, '');
+        const dlBtn = document.createElement('a');
+        dlBtn.className = 'dl-btn';
+        dlBtn.textContent = 'Download';
+        dlBtn.addEventListener('click', e => {
+          e.preventDefault();
+          const fname = overwriteCheck.checked ? `${stem}.${vidFmt}` : `${stem}_converted.${vidFmt}`;
+          const tmp = document.createElement('a');
+          tmp.href = `/api/video/download/${job_id}?filename=${encodeURIComponent(fname)}`;
+          tmp.download = fname;
+          tmp.click();
+        });
+        const st = document.getElementById(`vid-st-${item.id}`);
+        if (st) { st.innerHTML = ''; st.appendChild(dlBtn); }
+        break;
+
+      } else if (status === 'error') {
+        pw?.classList.remove('visible');
+        vidSetStatus(item.id, 'error', 'Error');
+        const m = document.getElementById(`vid-meta-${item.id}`);
+        if (m) m.textContent = error || 'Conversion failed';
+        item.converting = false; break;
+      }
+    }
+  } catch {
+    vidSetStatus(item.id, 'error', 'Failed');
+    const m = document.getElementById(`vid-meta-${item.id}`);
+    if (m) m.textContent = 'Could not reach server — is server.py running?';
+    item.converting = false;
+  } finally {
+    if (cvBtn) cvBtn.disabled = false;
+  }
+}
+
+vidConvertBtn.addEventListener('click', async () => {
+  const pending = vidFiles.filter(f => !f.done && !f.converting);
+  if (!pending.length) return;
+  vidConvertBtn.disabled = true;
+  for (const item of pending) await vidConvert(item);
+  vidConvertBtn.disabled = false;
+});
+
+// ── PDF converter ────────────────────────────────────────────────────────────
+const pdfDropZone   = document.getElementById('pdfDropZone');
+const pdfFileInput  = document.getElementById('pdfFileInput');
+const pdfDropLabel  = document.getElementById('pdfDropLabel');
+const pdfDropHint   = document.getElementById('pdfDropHint');
+const pdfQueue      = document.getElementById('pdfQueue');
+const pdfFileList   = document.getElementById('pdfFileList');
+const pdfConvertBtn = document.getElementById('pdfConvertAllBtn');
+const pdfImgOpts    = document.getElementById('pdfImgOpts');
+const pdfFmtRow     = document.getElementById('pdfFmtRow');
+const pdfDpiRow     = document.getElementById('pdfDpiRow');
+const pdfCombineCheck = document.getElementById('pdfCombineCheck');
+const pdfPagesOutRow = document.getElementById('pdfPagesOutRow');
+const pdfThumbs      = document.getElementById('pdfThumbs');
+const pdfQueueTitle  = document.getElementById('pdfQueueTitle');
+const pdfCompressQualityRow = document.getElementById('pdfCompressQualityRow');
+const pdfCompressTargetRow  = document.getElementById('pdfCompressTargetRow');
+const pdfTargetInput        = document.getElementById('pdfTargetInput');
+const pdfCompressHint       = document.getElementById('pdfCompressHint');
+
+let pdfMode = 'img2pdf', pdfFmt = 'png', pdfDpi = '150';
+let pdfFiles = [], pdfNextId = 0;
+let pdfCombine = true;
+let pdfSections = [];          // [{ id, file, pageCount, selected:Set, inputEl, thumbsEl, section }]
+let pdfQuality = 'balanced';
+
+makeOptionPicker(document.getElementById('pdfFmtGroup'), btn => { pdfFmt = btn.dataset.fmt; });
+makeOptionPicker(document.getElementById('pdfDpiGroup'), btn => { pdfDpi = btn.dataset.dpi; });
+makeOptionPicker(document.getElementById('pdfPagesOutGroup'), btn => { pdfCombine = btn.dataset.combine === 'true'; });
+makeOptionPicker(document.getElementById('pdfCompressQualityGroup'), btn => { pdfQuality = btn.dataset.q; });
+
+makeOptionPicker(document.getElementById('pdfModeGroup'), btn => {
+  pdfMode = btn.dataset.mode;
+  const img     = pdfMode === 'img2pdf';
+  const toImg   = pdfMode === 'pdf2img';
+  const toPages = pdfMode === 'pdf2pages';
+  const toComp  = pdfMode === 'compress';
+  pdfImgOpts.style.display            = img ? '' : 'none';
+  pdfFmtRow.style.display             = toImg ? '' : 'none';
+  pdfDpiRow.style.display             = toImg ? '' : 'none';
+  pdfPagesOutRow.style.display        = toPages ? '' : 'none';
+  pdfThumbs.style.display             = toPages ? '' : 'none';
+  pdfCompressQualityRow.style.display = toComp ? '' : 'none';
+  pdfCompressTargetRow.style.display  = toComp ? '' : 'none';
+  pdfCompressHint.style.display       = 'none';
+  pdfFileList.style.display    = toPages ? 'none' : '';   // pages mode uses thumbnails instead
+  pdfQueueTitle.textContent    = toPages ? 'Export' : 'Files';
+  pdfConvertBtn.textContent    = toPages ? 'Export' : toComp ? 'Compress' : 'Convert';
+  pdfFileInput.accept   = img ? 'image/*,.heic,.heif' : 'application/pdf,.pdf';
+  pdfFileInput.multiple = true;   // all PDF modes accept multiple files
+  pdfDropLabel.textContent = img ? 'Drop images here or click to browse' : 'Drop a PDF here or click to browse';
+  pdfDropHint.textContent  = img ? 'Combine images into a PDF'
+                            : toImg ? 'Each page becomes an image'
+                            : toPages ? 'Select pages to export into a new PDF'
+                            : 'Shrink the PDF (Ghostscript or built-in)';
+  pdfClearAll();
+});
+
+pdfDropZone.addEventListener('dragover',  e => { e.preventDefault(); pdfDropZone.classList.add('drag-over'); });
+pdfDropZone.addEventListener('dragleave', () => pdfDropZone.classList.remove('drag-over'));
+pdfDropZone.addEventListener('drop', e => { e.preventDefault(); pdfDropZone.classList.remove('drag-over'); pdfAddFiles([...e.dataTransfer.files]); });
+pdfFileInput.addEventListener('change', () => { pdfAddFiles([...pdfFileInput.files]); pdfFileInput.value = ''; });
+
+function pdfClearAll() {
+  pdfFiles = [];
+  pdfFileList.innerHTML = '';
+  pdfQueue.style.display = 'none';
+  pdfFileInput.value = '';
+  pdfSections = [];
+  pdfThumbs.innerHTML = '';
+  pdfCompressHint.style.display = 'none';
+  pdfCompressHint.textContent = '';
+}
+
+function pdfAddFiles(fs) {
+  if (pdfMode === 'pdf2pages') {
+    const pdfs = fs.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+    pdfs.forEach(f => pdfAddPageSection(f));
+    return;
+  }
+  fs.forEach(f => {
+    const id = pdfNextId++;
+    pdfFiles.push({ id, file: f, done: false });
+    pdfRenderItem(pdfFiles.at(-1));
+  });
+  pdfQueue.style.display = pdfFiles.length ? '' : 'none';
+}
+
+// ── PDF → Pages helpers ──
+function parsePageRanges(text, pageCount) {
+  // Mirror of server-side parse_page_ranges; returns [] on any invalid/empty input.
+  const out = new Set();
+  const toks = String(text || '').split(',').map(s => s.trim()).filter(Boolean);
+  for (const tok of toks) {
+    if (tok.includes('-')) {
+      const [a, b] = tok.split('-').map(s => s.trim());
+      if (!/^\d+$/.test(a) || !/^\d+$/.test(b)) return [];
+      let lo = +a, hi = +b; if (lo > hi) [lo, hi] = [hi, lo];
+      for (let p = lo; p <= hi; p++) out.add(p);
+    } else {
+      if (!/^\d+$/.test(tok)) return [];
+      out.add(+tok);
+    }
+  }
+  const arr = [...out].sort((x, y) => x - y);
+  return arr.every(p => p >= 1 && p <= pageCount) ? arr : [];
+}
+
+function pagesToText(set) {
+  // Collapse a sorted page set into compact ranges: {1,2,3,5} -> "1-3,5"
+  const arr = [...set].sort((x, y) => x - y);
+  const parts = [];
+  let i = 0;
+  while (i < arr.length) {
+    let j = i;
+    while (j + 1 < arr.length && arr[j + 1] === arr[j] + 1) j++;
+    parts.push(i === j ? `${arr[i]}` : `${arr[i]}-${arr[j]}`);
+    i = j + 1;
+  }
+  return parts.join(',');
+}
+
+function pdfRenderSectionSelection(entry) {
+  [...entry.thumbsEl.children].forEach(el => {
+    const pg = +el.dataset.page;
+    if (!Number.isNaN(pg)) el.classList.toggle('selected', entry.selected.has(pg));
+  });
+}
+
+function pdfUpdateExportEnabled() {
+  pdfConvertBtn.disabled = !pdfSections.some(s => s.selected.size > 0);
+}
+
+function pdfSyncSection(entry) {
+  entry.inputEl.value = pagesToText(entry.selected);
+  pdfRenderSectionSelection(entry);
+  pdfUpdateExportEnabled();
+}
+
+async function pdfAddPageSection(file) {
+  const id = pdfNextId++;
+  const section = document.createElement('div');
+  section.className = 'pdf-section';
+  section.dataset.id = id;
+  section.innerHTML =
+    `<div class="pdf-section-head">
+       <span class="pdf-section-name"></span>
+       <div class="pdf-select-btns">
+         <button class="pdf-sel-btn" data-action="all">All</button>
+         <button class="pdf-sel-btn" data-action="none">None</button>
+         <button class="pdf-sel-btn" data-action="invert">Invert</button>
+       </div>
+       <input type="text" class="pages-input pdf-section-pages" placeholder="e.g. 1,3,5-7" />
+     </div>
+     <div class="pdf-thumbs pdf-section-thumbs"><div class="drop-hint">Rendering pages…</div></div>`;
+  section.querySelector('.pdf-section-name').textContent = file.name;   // textContent, not innerHTML (XSS-safe)
+  pdfThumbs.style.display = '';
+  pdfThumbs.appendChild(section);
+  pdfQueue.style.display = '';
+
+  const inputEl = section.querySelector('.pdf-section-pages');
+  const thumbsEl = section.querySelector('.pdf-section-thumbs');
+  const entry = { id, file, pageCount: 0, selected: new Set(), inputEl, thumbsEl, section };
+  pdfSections.push(entry);
+
+  section.querySelector('.pdf-select-btns').addEventListener('click', e => {
+    const btn = e.target.closest('.pdf-sel-btn');
+    if (!btn || !entry.pageCount) return;
+    const action = btn.dataset.action;
+    if (action === 'all') {
+      entry.selected = new Set(Array.from({ length: entry.pageCount }, (_, i) => i + 1));
+    } else if (action === 'none') {
+      entry.selected = new Set();
+    } else if (action === 'invert') {
+      const next = new Set();
+      for (let p = 1; p <= entry.pageCount; p++) { if (!entry.selected.has(p)) next.add(p); }
+      entry.selected = next;
+    }
+    pdfSyncSection(entry);
+  });
+
+  inputEl.addEventListener('input', () => {
+    entry.selected = new Set(parsePageRanges(inputEl.value, entry.pageCount));
+    pdfRenderSectionSelection(entry);
+    pdfUpdateExportEnabled();
+  });
+
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const res = await fetch('/api/pdf/thumbnails', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to render');
+    entry.pageCount = data.page_count;
+    entry.selected = new Set(data.thumbnails.map(t => t.page));  // all selected by default
+    thumbsEl.innerHTML = '';
+    for (const t of data.thumbnails) {
+      const el = document.createElement('button');
+      el.className = 'pdf-thumb';
+      el.dataset.page = t.page;
+      el.innerHTML = `<img src="${t.dataUrl}" alt="page ${t.page}"><span class="pg-num">${t.page}</span>`;
+      el.addEventListener('click', () => {
+        const pg = +el.dataset.page;
+        if (entry.selected.has(pg)) entry.selected.delete(pg); else entry.selected.add(pg);
+        pdfSyncSection(entry);
+      });
+      thumbsEl.appendChild(el);
+    }
+    pdfSyncSection(entry);
+  } catch (e) {
+    thumbsEl.innerHTML = `<div class="drop-hint">Error: ${e.message}</div>`;
+  }
+}
+
+function pdfRenderItem(item) {
+  const el = document.createElement('div');
+  el.className = 'file-item'; el.id = `pdf-item-${item.id}`;
+  let thumb;
+  if (item.file.type.startsWith('image/')) {
+    item.objectURL = URL.createObjectURL(item.file);
+    thumb = `<img class="file-thumb" src="${item.objectURL}" alt="" />`;
+  } else {
+    thumb = `<div class="file-icon">&#128196;</div>`;
+  }
+  el.innerHTML = `
+    ${thumb}
+    <div class="file-info">
+      <div class="file-name"></div>
+      <div class="file-meta" id="pdf-meta-${item.id}">${fmtSize(item.file.size)}</div>
+    </div>
+    <span class="file-status status-pending" id="pdf-st-${item.id}">Pending</span>
+    <button class="remove-btn" data-id="${item.id}">&#x2715;</button>`;
+  el.querySelector('.file-name').textContent = item.file.name;   // textContent, not innerHTML (XSS-safe)
+  el.querySelector('.remove-btn').addEventListener('click', () => pdfRemove(item.id));
+  pdfFileList.appendChild(el);
+}
+
+function pdfRemove(id) {
+  const item = pdfFiles.find(f => f.id === id);
+  if (item) {
+    if (item.objectURL) URL.revokeObjectURL(item.objectURL);
+    if (item.downloadUrl) URL.revokeObjectURL(item.downloadUrl);
+  }
+  pdfFiles = pdfFiles.filter(f => f.id !== id);
+  document.getElementById(`pdf-item-${id}`)?.remove();
+  if (!pdfFiles.length) pdfQueue.style.display = 'none';
+}
+
+function pdfSetStatus(id, cls, text) {
+  const el = document.getElementById(`pdf-st-${id}`);
+  if (el) { el.className = `file-status status-${cls}`; el.textContent = text; }
+}
+
+function pdfDownloadLink(id, blob, name) {
+  const item = pdfFiles.find(f => f.id === id);
+  if (item && item.downloadUrl) URL.revokeObjectURL(item.downloadUrl);   // revoke prior blob
+  const url = URL.createObjectURL(blob);
+  if (item) item.downloadUrl = url;
+  const a = Object.assign(document.createElement('a'), {
+    className: 'dl-btn', href: url, download: name, textContent: 'Download',
+  });
+  const st = document.getElementById(`pdf-st-${id}`);
+  if (st) { st.innerHTML = ''; st.appendChild(a); }
+}
+
+async function pdfConvertCombined() {
+  const pending = pdfFiles.filter(f => !f.done);
+  if (!pending.length) return;
+  pending.forEach(f => pdfSetStatus(f.id, 'working', 'Converting…'));
+  const form = new FormData();
+  pending.forEach(f => form.append('file', f.file));
+  try {
+    const res = await fetch('/api/pdf/from-images', { method: 'POST', body: form });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      pending.forEach(f => pdfSetStatus(f.id, 'error', err.error || 'Failed'));
+      return;
+    }
+    const blob = await res.blob();
+    pending.forEach((f, i) => {
+      f.done = true;
+      if (i === 0) pdfDownloadLink(f.id, blob, 'combined.pdf');
+      else pdfSetStatus(f.id, 'done', 'In PDF');
+    });
+  } catch {
+    pending.forEach(f => pdfSetStatus(f.id, 'error', 'Failed'));
+  }
+}
+
+async function pdfConvertOne(item) {
+  pdfSetStatus(item.id, 'working', 'Converting…');
+  const form = new FormData();
+  form.append('file', item.file);
+  let name = null, res;
+  try {
+    if (pdfMode === 'img2pdf') {
+      name = item.file.name.replace(/\.[^.]+$/, '') + (overwriteCheck.checked ? '.pdf' : '_converted.pdf');
+      res = await fetch('/api/pdf/from-images', { method: 'POST', body: form });
+    } else {
+      form.append('format', pdfFmt);
+      form.append('dpi', pdfDpi);
+      res = await fetch('/api/pdf/to-images', { method: 'POST', body: form });
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      pdfSetStatus(item.id, 'error', err.error || 'Failed');
+      return;
+    }
+    const blob = await res.blob();
+    item.done = true;
+    if (!name) {
+      const stem = item.file.name.replace(/\.[^.]+$/, '');
+      name = blob.type === 'application/zip' ? `${stem}_pages.zip` : `${stem}_page.${pdfFmt}`;
+    }
+    pdfDownloadLink(item.id, blob, name);
+  } catch {
+    pdfSetStatus(item.id, 'error', 'Failed');
+  }
+}
+
+async function pdfCompressOne(item) {
+  pdfSetStatus(item.id, 'working', 'Compressing…');
+  pdfCompressHint.style.display = 'none';
+  const fd = new FormData();
+  fd.append('file', item.file);
+  fd.append('quality', pdfQuality);
+  const tgt = pdfTargetInput.value.trim();
+  if (tgt) fd.append('target_mb', tgt);
+  try {
+    const res = await fetch('/api/pdf/compress', { method: 'POST', body: fd });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      pdfSetStatus(item.id, 'error', err.error || 'Failed');
+      return;
+    }
+    const blob = await res.blob();
+    const before = +res.headers.get('X-Before-Size') || item.file.size;
+    const after  = +res.headers.get('X-After-Size')  || blob.size;
+    const engine = res.headers.get('X-Compress-Engine') || '';
+    const pct = before > 0 ? Math.round((1 - after / before) * 100) : 0;
+    const meta = document.getElementById(`pdf-meta-${item.id}`);
+    const engineLabel = engine === 'ghostscript' ? 'Ghostscript' : engine === 'python' ? 'built-in' : '';
+    if (meta) meta.textContent = `${fmtSize(before)} → ${fmtSize(after)} (${pct}% smaller)` + (engineLabel ? ` · ${engineLabel}` : '');
+    item.done = true;
+    const stem = item.file.name.replace(/\.[^.]+$/, '');
+    pdfDownloadLink(item.id, blob, overwriteCheck.checked ? `${stem}.pdf` : `${stem}_compressed.pdf`);
+    const targetMb = parseFloat(tgt);
+    if (engine === 'python' && targetMb > 0 && after > targetMb * 1024 * 1024) {
+      pdfCompressHint.textContent = 'Couldn’t reach the target with the built-in compressor. Install Ghostscript (brew install ghostscript) for better, text-preserving compression.';
+      pdfCompressHint.style.display = '';
+    }
+  } catch {
+    pdfSetStatus(item.id, 'error', 'Failed');
+  }
+}
+
+pdfConvertBtn.addEventListener('click', async () => {
+  if (pdfMode === 'compress') {
+    const pending = pdfFiles.filter(f => !f.done);
+    if (!pending.length) return;
+    pdfConvertBtn.disabled = true;
+    for (const item of pending) await pdfCompressOne(item);
+    pdfConvertBtn.disabled = false;
+    return;
+  }
+  if (pdfMode === 'pdf2pages') {
+    const active = pdfSections.filter(s => s.selected.size > 0);
+    if (!active.length) return;
+    const fd = new FormData();
+    active.forEach(s => {
+      fd.append('file', s.file);
+      fd.append('pages', pagesToText(s.selected));
+    });
+    fd.append('combine', pdfCombine ? 'true' : 'false');
+    pdfConvertBtn.disabled = true;
+    try {
+      const res = await fetch('/api/pdf/extract-batch', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Export failed');
+      }
+      const blob = await res.blob();
+      const cd = res.headers.get('Content-Disposition') || '';
+      const m = cd.match(/filename="?([^"]+)"?/);
+      const name = m ? m[1] : 'pages.zip';
+      const a = Object.assign(document.createElement('a'),
+        { href: URL.createObjectURL(blob), download: name });
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      pdfUpdateExportEnabled();
+    }
+    return;
+  }
+  if (!pdfFiles.filter(f => !f.done).length) return;
+  pdfConvertBtn.disabled = true;
+  if (pdfMode === 'img2pdf' && pdfCombineCheck.checked) {
+    await pdfConvertCombined();
+  } else {
+    for (const item of pdfFiles.filter(f => !f.done)) await pdfConvertOne(item);
+  }
+  pdfConvertBtn.disabled = false;
+});
+
+// ── Theme toggle ─────────────────────────────────────────────────────────────
+const themeToggle = document.getElementById('themeToggle');
+function applyTheme(theme) {
+  if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light');
+  else document.documentElement.removeAttribute('data-theme');
+  themeToggle.textContent = theme === 'light' ? '🌙' : '☀️';
+  themeToggle.title = theme === 'light' ? 'Switch to dark' : 'Switch to light';
+}
+(function () {
+  let saved = null;
+  try { saved = localStorage.getItem('theme'); } catch (e) {}
+  applyTheme(saved === 'light' ? 'light' : 'dark');
+})();
+themeToggle.addEventListener('click', () => {
+  const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  applyTheme(next);
+  try { localStorage.setItem('theme', next); } catch (e) {}
+});
+</script>
+</body>
+</html>

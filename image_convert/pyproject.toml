@@ -1,0 +1,13 @@
+[project]
+name = "image-converter"
+version = "0.1.0"
+description = "Convert images between formats (HEIC, WEBP, JPG, PNG, etc.)"
+dependencies = [
+    "pillow",
+    "pillow-heif",
+    "flask"
+]
+
+[project.scripts]
+imgconvert = "image_converter:main"
+imgconvert-server = "server:app"

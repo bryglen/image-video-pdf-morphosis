@@ -1,0 +1,10 @@
+[project]
+name = "media-converter"
+version = "0.1.0"
+description = "Convert images and videos via a local web UI"
+dependencies = [
+    "pillow",
+    "pillow-heif",
+    "flask",
+    "pymupdf"
+]
