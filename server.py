@@ -3,7 +3,9 @@ from pathlib import Path
 from flask import Flask, request, send_file, jsonify
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from image_convert.image_converter import convert_image, OUTPUT_FORMATS, MIME_TYPES
+from image_convert.image_converter import (
+    convert_image, OUTPUT_FORMATS, MIME_TYPES, probe_image_metadata,
+)
 from video_convert.convert_video import (
     build_ffmpeg_cmd, VIDEO_MIME, has_videotoolbox, has_hevc_videotoolbox,
     has_hevc_encoder, probe_metadata, copy_apple_metadata,
@@ -56,6 +58,22 @@ def index():
 
 
 # ── Image ──────────────────────────────────────────────────────────────────
+
+@app.route("/api/image/probe", methods=["POST"])
+def image_probe():
+    if "file" not in request.files:
+        return jsonify(error="No file provided"), 400
+    file = request.files["file"]
+    try:
+        raw = file.read()
+        img = Image.open(io.BytesIO(raw))
+        img.load()
+        meta = probe_image_metadata(img)
+        meta["size"] = len(raw)
+        return jsonify(meta)
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+
 
 @app.route("/api/image/convert", methods=["POST"])
 def image_convert():

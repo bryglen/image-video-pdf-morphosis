@@ -30,6 +30,106 @@ MIME_TYPES = {
 }
 
 
+def _exif_gps_to_decimal(gps):
+    """Convert a PIL GPSInfo IFD dict to (lat, lon) decimal degrees, or None."""
+    try:
+        def to_deg(vals):
+            d, m, s = (float(v) for v in vals)
+            return d + m / 60 + s / 3600
+        lat = to_deg(gps[2])              # GPSLatitude
+        lon = to_deg(gps[4])              # GPSLongitude
+        if str(gps.get(1, "")).upper() == "S":   # GPSLatitudeRef
+            lat = -lat
+        if str(gps.get(3, "")).upper() == "W":   # GPSLongitudeRef
+            lon = -lon
+        return lat, lon
+    except Exception:
+        return None
+
+
+def probe_image_metadata(img):
+    """Return a dict of human-relevant image metadata (partial or {} on failure).
+
+    Keys (any may be absent): creation_time, location (ISO-6709-ish string),
+    make, model, exposure, dimensions, format, color_profile (bool).
+    File size is added by the caller (PIL has no notion of on-disk size).
+    """
+    meta = {}
+    if img.width and img.height:
+        meta["dimensions"] = f"{img.width}x{img.height}"
+    if getattr(img, "format", None):
+        meta["format"] = img.format
+    if img.info.get("icc_profile"):
+        meta["color_profile"] = True
+
+    try:
+        exif = img.getexif()
+    except Exception:
+        exif = None
+    if not exif:
+        return meta
+
+    make = exif.get(0x010F)
+    model = exif.get(0x0110)
+    if make:
+        meta["make"] = str(make).strip("\x00 ").strip()
+    if model:
+        meta["model"] = str(model).strip("\x00 ").strip()
+
+    try:
+        sub = exif.get_ifd(0x8769)   # Exif sub-IFD (DateTimeOriginal, exposure)
+    except Exception:
+        sub = {}
+    dt = sub.get(0x9003) or exif.get(0x0132)   # DateTimeOriginal / DateTime
+    if dt:
+        s = str(dt).strip()
+        # EXIF datetime is "YYYY:MM:DD HH:MM:SS"; make the date part ISO-friendly.
+        if len(s) >= 19 and s[4] == ":" and s[7] == ":":
+            s = f"{s[:4]}-{s[5:7]}-{s[8:]}"
+        meta["creation_time"] = s
+
+    parts = []
+    et = sub.get(0x829A)   # ExposureTime
+    fn = sub.get(0x829D)   # FNumber
+    iso = sub.get(0x8827)  # ISOSpeedRatings
+    fl = sub.get(0x920A)   # FocalLength
+    try:
+        if et:
+            etf = float(et)
+            parts.append(f"1/{round(1 / etf)}s" if 0 < etf < 1 else f"{etf:g}s")
+    except Exception:
+        pass
+    try:
+        if fn:
+            parts.append(f"f/{float(fn):g}")
+    except Exception:
+        pass
+    try:
+        if iso:
+            iso_v = iso[0] if isinstance(iso, (tuple, list)) else iso
+            parts.append(f"ISO {int(iso_v)}")
+    except Exception:
+        pass
+    try:
+        if fl:
+            parts.append(f"{float(fl):g}mm")
+    except Exception:
+        pass
+    if parts:
+        meta["exposure"] = " · ".join(parts)
+
+    try:
+        gps = exif.get_ifd(0x8825)   # GPSInfo IFD
+    except Exception:
+        gps = {}
+    if gps:
+        dec = _exif_gps_to_decimal(gps)
+        if dec:
+            # ISO-6709-ish so the frontend's parseLoc handles image + video alike.
+            meta["location"] = f"{dec[0]:+.6f}{dec[1]:+.6f}/"
+    return meta
+
+
 def flatten_alpha_to_white(img):
     if img.mode in ("RGBA", "LA"):
         bg = Image.new("RGB", img.size, (255, 255, 255))
