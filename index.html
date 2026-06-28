@@ -203,9 +203,15 @@
 
     .global-options {
       display: flex;
-      justify-content: flex-end;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      max-width: 680px;
       padding: 0 0 10px;
     }
+    .total-saved { font-size: 0.82rem; color: var(--text-muted); font-weight: 600; }
+    .total-saved .ts-num { color: #22c55e; }
+    .total-saved.warn .ts-num { color: #f97316; }
 
     .queue { padding: 16px 24px; }
     .queue-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
@@ -218,6 +224,15 @@
     }
     .convert-all-btn:hover    { background: #1d4ed8; }
     .convert-all-btn:disabled { background: var(--surface-2); color: var(--text-faint); cursor: not-allowed; }
+
+    .queue-actions { display: flex; gap: 8px; align-items: center; }
+    .download-all-btn {
+      background: #22c55e; color: #000; border: none; border-radius: 8px;
+      padding: 7px 16px; font-size: 0.825rem; font-weight: 600; cursor: pointer;
+      font-family: inherit; transition: background 0.12s;
+    }
+    .download-all-btn:hover:not(:disabled) { background: #16a34a; }
+    .download-all-btn:disabled { background: var(--surface-2); color: var(--text-faint); cursor: not-allowed; }
 
     .file-list { display: flex; flex-direction: column; gap: 8px; }
 
@@ -318,6 +333,7 @@
   <button class="tab-btn" data-tab="pdf">&#128196; PDF</button>
 </div>
 <div class="global-options">
+  <span class="total-saved" id="totalSaved" style="display:none"></span>
   <label class="lossless-wrap visible">
     <input type="checkbox" id="overwriteCheck" />
     Overwrite originals
@@ -366,7 +382,10 @@
     <div class="queue" id="imgQueue" style="display:none">
       <div class="queue-header">
         <span class="queue-title">Files</span>
-        <button class="convert-all-btn" id="imgConvertAllBtn">Convert all</button>
+        <div class="queue-actions">
+          <button class="download-all-btn" id="imgDownloadAllBtn" disabled>Download all</button>
+          <button class="convert-all-btn" id="imgConvertAllBtn">Convert all</button>
+        </div>
       </div>
       <div class="file-list" id="imgFileList"></div>
     </div>
@@ -428,7 +447,10 @@
     <div class="queue" id="vidQueue" style="display:none">
       <div class="queue-header">
         <span class="queue-title">Files</span>
-        <button class="convert-all-btn" id="vidConvertAllBtn">Convert all</button>
+        <div class="queue-actions">
+          <button class="download-all-btn" id="vidDownloadAllBtn" disabled>Download all</button>
+          <button class="convert-all-btn" id="vidConvertAllBtn">Convert all</button>
+        </div>
       </div>
       <div class="file-list" id="vidFileList"></div>
     </div>
@@ -545,6 +567,25 @@ function fmtSize(bytes) {
 }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// Running summary of bytes saved across every converted file (image + video + PDF).
+// Pure recompute from current item state — handles re-converts and removals for free.
+const totalSavedEl = document.getElementById('totalSaved');
+function recomputeTotals() {
+  let saved = 0, count = 0;
+  for (const arr of [imgFiles, vidFiles, pdfFiles]) {
+    for (const it of arr) {
+      if (it.before != null && it.after != null) { saved += it.before - it.after; count++; }
+    }
+  }
+  if (count === 0) { totalSavedEl.style.display = 'none'; return; }
+  totalSavedEl.style.display = '';
+  const bigger = saved < 0;
+  totalSavedEl.classList.toggle('warn', bigger);
+  const word = bigger ? 'larger' : 'saved';
+  totalSavedEl.innerHTML =
+    `Total <span class="ts-num">${fmtSize(Math.abs(saved))}</span> ${word} · ${count} file${count === 1 ? '' : 's'}`;
+}
+
 function makeOptionPicker(groupEl, onPick) {
   groupEl.addEventListener('click', e => {
     const btn = e.target.closest('.fmt-btn');
@@ -563,6 +604,18 @@ const imgLossCheck  = document.getElementById('imgLosslessCheck');
 const imgQueue      = document.getElementById('imgQueue');
 const imgFileList   = document.getElementById('imgFileList');
 const imgConvertBtn = document.getElementById('imgConvertAllBtn');
+const imgDownloadAllBtn = document.getElementById('imgDownloadAllBtn');
+
+function imgUpdateDownloadAll() {
+  imgDownloadAllBtn.disabled = !imgFiles.some(f => f.done && f.downloadUrl);
+}
+
+function imgTriggerDownload(item) {
+  if (!item.done || !item.downloadUrl) return;
+  const a = Object.assign(document.createElement('a'),
+    { href: item.downloadUrl, download: item.downloadName });
+  document.body.appendChild(a); a.click(); a.remove();
+}
 
 let imgFmt = 'jpg', imgRes = 'original', imgFiles = [], imgNextId = 0;
 
@@ -614,6 +667,8 @@ function imgRemove(id) {
   imgFiles = imgFiles.filter(f => f.id !== id);
   document.getElementById(`img-item-${id}`)?.remove();
   if (!imgFiles.length) imgQueue.style.display = 'none';
+  imgUpdateDownloadAll();
+  recomputeTotals();
 }
 
 function imgSetStatus(id, cls, text) {
@@ -660,6 +715,7 @@ async function imgConvert(item) {
     const saved  = Math.abs((before - after) / before * 100).toFixed(1);
 
     item.done = true;
+    item.before = before; item.after = after;
     pw?.classList.remove('visible');
 
     const m = document.getElementById(`img-meta-${item.id}`);
@@ -669,9 +725,12 @@ async function imgConvert(item) {
     const ext  = imgFmt === 'jpeg' ? 'jpg' : imgFmt;
     if (item.downloadUrl) URL.revokeObjectURL(item.downloadUrl);   // revoke prior blob on re-convert
     item.downloadUrl = URL.createObjectURL(blob);
-    const a    = Object.assign(document.createElement('a'), { className: 'dl-btn', href: item.downloadUrl, download: overwriteCheck.checked ? `${stem}.${ext}` : `${stem}_converted.${ext}`, textContent: 'Download' });
+    item.downloadName = overwriteCheck.checked ? `${stem}.${ext}` : `${stem}_converted.${ext}`;
+    const a    = Object.assign(document.createElement('a'), { className: 'dl-btn', href: item.downloadUrl, download: item.downloadName, textContent: 'Download' });
     const st   = document.getElementById(`img-st-${item.id}`);
     if (st) { st.innerHTML = ''; st.appendChild(a); }
+    imgUpdateDownloadAll();
+    recomputeTotals();
   } catch {
     clearInterval(tick);
     imgSetStatus(item.id, 'error', 'Failed');
@@ -691,12 +750,31 @@ imgConvertBtn.addEventListener('click', async () => {
   imgConvertBtn.disabled = false;
 });
 
+imgDownloadAllBtn.addEventListener('click', async () => {
+  const done = imgFiles.filter(f => f.done && f.downloadUrl);
+  for (const item of done) { imgTriggerDownload(item); await sleep(300); }
+});
+
 // ── Video converter ────────────────────────────────────────────────────────
 const vidDropZone   = document.getElementById('vidDropZone');
 const vidFileInput  = document.getElementById('vidFileInput');
 const vidQueue      = document.getElementById('vidQueue');
 const vidFileList   = document.getElementById('vidFileList');
 const vidConvertBtn = document.getElementById('vidConvertAllBtn');
+const vidDownloadAllBtn = document.getElementById('vidDownloadAllBtn');
+
+function vidUpdateDownloadAll() {
+  vidDownloadAllBtn.disabled = !vidFiles.some(f => f.done && f.jobId);
+}
+
+function vidTriggerDownload(item) {
+  if (!item.done || !item.jobId) return;
+  const fname = overwriteCheck.checked ? `${item.stem}.${item.outFmt}` : `${item.stem}_converted.${item.outFmt}`;
+  const a = document.createElement('a');
+  a.href = `/api/video/download/${item.jobId}?filename=${encodeURIComponent(fname)}`;
+  a.download = fname;
+  document.body.appendChild(a); a.click(); a.remove();
+}
 
 let vidFmt = 'mp4', vidSpeed = '1', vidQuality = 'balanced', vidRes = 'original';
 let vidFiles = [], vidNextId = 0;
@@ -749,6 +827,8 @@ function vidRemove(id) {
   vidFiles = vidFiles.filter(f => f.id !== id);
   document.getElementById(`vid-item-${id}`)?.remove();
   if (!vidFiles.length) vidQueue.style.display = 'none';
+  vidUpdateDownloadAll();
+  recomputeTotals();
 }
 
 function vidSetStatus(id, cls, text) {
@@ -844,21 +924,18 @@ async function vidConvert(item) {
         }
 
         item.done = true; item.converting = false;
+        item.stem = item.file.name.replace(/\.[^.]+$/, '');
+        item.outFmt = vidFmt;
+        if (after_size != null) { item.before = before_size; item.after = after_size; }
 
-        const stem = item.file.name.replace(/\.[^.]+$/, '');
         const dlBtn = document.createElement('a');
         dlBtn.className = 'dl-btn';
         dlBtn.textContent = 'Download';
-        dlBtn.addEventListener('click', e => {
-          e.preventDefault();
-          const fname = overwriteCheck.checked ? `${stem}.${vidFmt}` : `${stem}_converted.${vidFmt}`;
-          const tmp = document.createElement('a');
-          tmp.href = `/api/video/download/${job_id}?filename=${encodeURIComponent(fname)}`;
-          tmp.download = fname;
-          tmp.click();
-        });
+        dlBtn.addEventListener('click', e => { e.preventDefault(); vidTriggerDownload(item); });
         const st = document.getElementById(`vid-st-${item.id}`);
         if (st) { st.innerHTML = ''; st.appendChild(dlBtn); }
+        vidUpdateDownloadAll();
+        recomputeTotals();
         break;
 
       } else if (status === 'error') {
@@ -885,6 +962,11 @@ vidConvertBtn.addEventListener('click', async () => {
   vidConvertBtn.disabled = true;
   await Promise.all(pending.map(item => vidConvert(item)));
   vidConvertBtn.disabled = false;
+});
+
+vidDownloadAllBtn.addEventListener('click', async () => {
+  const done = vidFiles.filter(f => f.done && f.jobId);
+  for (const item of done) { vidTriggerDownload(item); await sleep(300); }
 });
 
 // ── PDF converter ────────────────────────────────────────────────────────────
@@ -959,6 +1041,7 @@ function pdfClearAll() {
   pdfThumbs.innerHTML = '';
   pdfCompressHint.style.display = 'none';
   pdfCompressHint.textContent = '';
+  recomputeTotals();
 }
 
 function pdfAddFiles(fs) {
@@ -1133,6 +1216,7 @@ function pdfRemove(id) {
   pdfFiles = pdfFiles.filter(f => f.id !== id);
   document.getElementById(`pdf-item-${id}`)?.remove();
   if (!pdfFiles.length) pdfQueue.style.display = 'none';
+  recomputeTotals();
 }
 
 function pdfSetStatus(id, cls, text) {
@@ -1166,11 +1250,13 @@ async function pdfConvertCombined() {
       return;
     }
     const blob = await res.blob();
+    const totalBefore = pending.reduce((s, f) => s + f.file.size, 0);
     pending.forEach((f, i) => {
       f.done = true;
-      if (i === 0) pdfDownloadLink(f.id, blob, 'combined.pdf');
+      if (i === 0) { f.before = totalBefore; f.after = blob.size; pdfDownloadLink(f.id, blob, 'combined.pdf'); }
       else pdfSetStatus(f.id, 'done', 'In PDF');
     });
+    recomputeTotals();
   } catch {
     pending.forEach(f => pdfSetStatus(f.id, 'error', 'Failed'));
   }
@@ -1197,11 +1283,13 @@ async function pdfConvertOne(item) {
     }
     const blob = await res.blob();
     item.done = true;
+    item.before = item.file.size; item.after = blob.size;
     if (!name) {
       const stem = item.file.name.replace(/\.[^.]+$/, '');
       name = blob.type === 'application/zip' ? `${stem}_pages.zip` : `${stem}_page.${pdfFmt}`;
     }
     pdfDownloadLink(item.id, blob, name);
+    recomputeTotals();
   } catch {
     pdfSetStatus(item.id, 'error', 'Failed');
   }
@@ -1231,8 +1319,10 @@ async function pdfCompressOne(item) {
     const engineLabel = engine === 'ghostscript' ? 'Ghostscript' : engine === 'python' ? 'built-in' : '';
     if (meta) meta.textContent = `${fmtSize(before)} → ${fmtSize(after)} (${pct}% smaller)` + (engineLabel ? ` · ${engineLabel}` : '');
     item.done = true;
+    item.before = before; item.after = after;
     const stem = item.file.name.replace(/\.[^.]+$/, '');
     pdfDownloadLink(item.id, blob, overwriteCheck.checked ? `${stem}.pdf` : `${stem}_compressed.pdf`);
+    recomputeTotals();
     const targetMb = parseFloat(tgt);
     if (engine === 'python' && targetMb > 0 && after > targetMb * 1024 * 1024) {
       pdfCompressHint.textContent = 'Couldn’t reach the target with the built-in compressor. Install Ghostscript (brew install ghostscript) for better, text-preserving compression.';
