@@ -289,6 +289,10 @@
       color: var(--text-faint); cursor: not-allowed;
     }
 
+    /* % label under the progress bar — visible only while the bar is (CSS-tied). */
+    .pct-under { display: none; font-size: 0.72rem; color: #f59e0b; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .progress-bar-wrap.visible ~ .pct-under { display: block; }
+
     .item-cancel-btn {
       background: none; border: 1px solid var(--surface-3); color: var(--text-muted);
       border-radius: 6px; padding: 4px 10px; font-size: 0.75rem; font-weight: 600;
@@ -675,6 +679,7 @@ function imgRenderItem(item) {
       <div class="file-name"></div>
       <div class="file-meta" id="img-meta-${item.id}">${fmtSize(item.file.size)}</div>
       <div class="progress-bar-wrap" id="img-pw-${item.id}"><div class="progress-bar" id="img-pb-${item.id}"></div></div>
+      <div class="pct-under" id="img-pct-${item.id}">0%</div>
     </div>
     <button class="item-convert-btn" id="img-cv-${item.id}">Convert</button>
     <span class="file-status status-pending" id="img-st-${item.id}">Pending</span>
@@ -737,10 +742,17 @@ async function imgConvert(item) {
   imgSetStatus(item.id, 'working', 'Converting…');
   const pw = document.getElementById(`img-pw-${item.id}`);
   const pb = document.getElementById(`img-pb-${item.id}`);
+  const pctEl = document.getElementById(`img-pct-${item.id}`);
   pw?.classList.add('visible');
 
+  // Image conversion is in-memory/sub-second, so there's no real progress to
+  // report — animate toward 90% to show activity; the response snaps it to 100%.
   let pct = 0;
-  const tick = setInterval(() => { pct = Math.min(pct + 5, 80); if (pb) pb.style.width = pct + '%'; }, 100);
+  const tick = setInterval(() => {
+    pct = Math.min(pct + 5, 90);
+    if (pb) pb.style.width = pct + '%';
+    if (pctEl) pctEl.textContent = pct + '%';
+  }, 100);
 
   const form = new FormData();
   form.append('file', item.file);
@@ -876,6 +888,7 @@ function vidRenderItem(item) {
       <div class="file-name"></div>
       <div class="file-meta" id="vid-meta-${item.id}">${fmtSize(item.file.size)}</div>
       <div class="progress-bar-wrap" id="vid-pw-${item.id}"><div class="progress-bar" id="vid-pb-${item.id}"></div></div>
+      <div class="pct-under" id="vid-pct-${item.id}">0%</div>
     </div>
     <button class="item-convert-btn" id="vid-cv-${item.id}">Convert</button>
     <span class="file-status status-pending" id="vid-st-${item.id}">Pending</span>
@@ -1065,6 +1078,8 @@ async function vidConvert(item) {
 
       const { status, progress, error, after_size } = await sr.json();
       if (pb) pb.style.width = progress + '%';
+      const pctEl = document.getElementById(`vid-pct-${item.id}`);
+      if (pctEl && typeof progress === 'number') pctEl.textContent = progress + '%';
 
       if (status === 'done') {
         if (pb) pb.style.width = '100%';
