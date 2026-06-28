@@ -59,11 +59,14 @@ def convert_image(img, out_fmt, lossless=True, resolution="original"):
 
     exif = img.info.get("exif")
     icc = img.info.get("icc_profile")
+    xmp = img.info.get("xmp")
     base_kwargs = {}
     if exif:
         base_kwargs["exif"] = exif
     if icc:
         base_kwargs["icc_profile"] = icc
+    if xmp:
+        base_kwargs["xmp"] = xmp
 
     img = normalize_mode(img, out_fmt)
     buf = io.BytesIO()

@@ -80,6 +80,13 @@ def test_audio_codec_present_with_audio():
     assert "-an" not in cmd
 
 
+def test_map_metadata_in_all_formats():
+    for fmt in ("mp4", "mov", "webm"):
+        cmd = build_ffmpeg_cmd("in.mp4", f"out.{fmt}", dims=(1920, 1080), fmt=fmt)
+        assert "-map_metadata" in cmd, f"-map_metadata missing for {fmt}"
+        assert cmd[cmd.index("-map_metadata") + 1] == "0", f"-map_metadata 0 missing for {fmt}"
+
+
 def test_no_audio_uses_an_and_skips_af():
     cmd = " ".join(build_ffmpeg_cmd("in.mp4", "out.mp4", dims=(3840, 2160),
                                     has_audio=False, speed=2.0))

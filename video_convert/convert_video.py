@@ -141,7 +141,7 @@ def build_ffmpeg_cmd(input_path, output_path, fmt="mp4", speed=1.0,
             crf = CRF_MAP.get(quality, 23)
             vcodec = ["-c:v", "libx264", "-crf", str(crf), "-preset", "veryfast", "-pix_fmt", "yuv420p"]
 
-    cmd = ["ffmpeg", "-y", "-i", str(input_path)]
+    cmd = ["ffmpeg", "-y", "-i", str(input_path), "-map_metadata", "0"]
     if vf_parts:
         cmd += ["-vf", ",".join(vf_parts)]
     cmd += vcodec
