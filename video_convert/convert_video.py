@@ -16,6 +16,7 @@ from resolution import compute_target_size, RES_BOXES  # noqa: E402
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
 VIDEO_MIME = {"mp4": "video/mp4", "webm": "video/webm", "mov": "video/quicktime"}
 CRF_MAP = {"nearlossless": 18, "balanced": 23, "small": 28}
+HEVC_CRF_MAP = {"nearlossless": 22, "balanced": 28, "small": 32}  # x265 CRF runs higher than x264 for equal quality
 CQ_MAP  = {"nearlossless": 20, "balanced": 33, "small": 43}
 VQ_MAP  = {"nearlossless": 85, "balanced": 65, "small": 40}  # VideoToolbox -q:v (0-100)
 
@@ -43,6 +44,25 @@ def has_videotoolbox():
         result = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
                                 capture_output=True, text=True, check=True)
         return "h264_videotoolbox" in result.stdout
+    except Exception:
+        return False
+
+
+def has_hevc_videotoolbox():
+    try:
+        result = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
+                                capture_output=True, text=True, check=True)
+        return "hevc_videotoolbox" in result.stdout
+    except Exception:
+        return False
+
+
+def has_hevc_encoder():
+    """True if FFmpeg has any HEVC encoder (libx265, hevc_videotoolbox, or hevc_nvenc)."""
+    try:
+        result = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
+                                capture_output=True, text=True, check=True)
+        return any(e in result.stdout for e in ("libx265", "hevc_videotoolbox", "hevc_nvenc"))
     except Exception:
         return False
 
@@ -118,7 +138,7 @@ def _scale_filter(input_path, resolution, dims):
 def build_ffmpeg_cmd(input_path, output_path, fmt="mp4", speed=1.0,
                      quality="balanced", resolution="original", dims=None,
                      use_nvenc=False, use_videotoolbox=False, has_audio=None,
-                     creation_time=None):
+                     creation_time=None, codec="h264"):
     """Build the ffmpeg command shared by the web server and the CLI.
 
     dims: pass (w, h) to skip the ffprobe call (used in tests); otherwise probed.
@@ -126,6 +146,8 @@ def build_ffmpeg_cmd(input_path, output_path, fmt="mp4", speed=1.0,
     True when dims is provided, to keep tests ffprobe-free).
     creation_time: explicit ISO-8601 string to embed; None probes the source
     (skipped when dims is provided, to keep tests ffprobe-free).
+    codec: 'h264' (default, max compatibility) or 'hevc' (H.265, ~30-50% smaller).
+    Ignored for webm output, which always uses VP9.
     """
     if has_audio is None:
         has_audio = True if dims is not None else probe_has_audio(input_path)
@@ -150,15 +172,25 @@ def build_ffmpeg_cmd(input_path, output_path, fmt="mp4", speed=1.0,
         acodec = ["-c:a", "libopus", "-b:a", "128k"]
     else:
         acodec = ["-c:a", "aac", "-b:a", "128k"]
+        is_hevc = codec == "hevc"
+        crf_map = HEVC_CRF_MAP if is_hevc else CRF_MAP
+        crf_default = 28 if is_hevc else 23
         if use_videotoolbox:
             vq = VQ_MAP.get(quality, 65)
-            vcodec = ["-c:v", "h264_videotoolbox", "-q:v", str(vq), "-pix_fmt", "yuv420p"]
+            enc = "hevc_videotoolbox" if is_hevc else "h264_videotoolbox"
+            vcodec = ["-c:v", enc, "-q:v", str(vq), "-pix_fmt", "yuv420p"]
         elif use_nvenc:
-            crf = CRF_MAP.get(quality, 23)
-            vcodec = ["-c:v", "h264_nvenc", "-cq", str(crf), "-preset", "p4", "-pix_fmt", "yuv420p"]
+            crf = crf_map.get(quality, crf_default)
+            enc = "hevc_nvenc" if is_hevc else "h264_nvenc"
+            vcodec = ["-c:v", enc, "-cq", str(crf), "-preset", "p4", "-pix_fmt", "yuv420p"]
         else:
-            crf = CRF_MAP.get(quality, 23)
-            vcodec = ["-c:v", "libx264", "-crf", str(crf), "-preset", "veryfast", "-pix_fmt", "yuv420p"]
+            crf = crf_map.get(quality, crf_default)
+            enc = "libx265" if is_hevc else "libx264"
+            vcodec = ["-c:v", enc, "-crf", str(crf), "-preset", "veryfast", "-pix_fmt", "yuv420p"]
+        if is_hevc:
+            # Apple devices/QuickTime only play HEVC tagged 'hvc1' (FFmpeg defaults to
+            # 'hev1', which iPhone/Photos refuse to open).
+            vcodec += ["-tag:v", "hvc1"]
 
     cmd = ["ffmpeg", "-y", "-i", str(input_path), "-map_metadata", "0"]
     if fmt != "webm":
@@ -186,6 +218,7 @@ def build_ffmpeg_cmd(input_path, output_path, fmt="mp4", speed=1.0,
 RES_CHOICES = ["original"] + list(RES_BOXES.keys())
 FMT_CHOICES = ["mp4", "webm", "mov"]
 QUALITY_CHOICES = ["nearlossless", "balanced", "small"]
+CODEC_CHOICES = ["h264", "hevc"]
 
 
 def get_video_files(path):
@@ -249,6 +282,8 @@ def main():
         print("No supported video files found."); return
 
     fmt = ask_choice("Output format", FMT_CHOICES, "mp4")
+    # Codec only applies to mp4/mov; webm is always VP9.
+    codec = "h264" if fmt == "webm" else ask_choice("Codec", CODEC_CHOICES, "h264")
     quality = ask_choice("Quality", QUALITY_CHOICES, "balanced")
     resolution = ask_choice("Resolution", RES_CHOICES, "original")
     speed = ask_speed()
@@ -257,15 +292,20 @@ def main():
     if fmt != "webm" and has_nvenc():
         use_nvenc = ask_yes_no("NVIDIA NVENC detected. Use GPU encoding?", default=True)
 
-    encoder = "libvpx-vp9" if fmt == "webm" else ("h264_nvenc" if use_nvenc else "libx264")
-    print(f"\nFound {len(files)} video(s). {fmt} @ {resolution}, quality={quality}, "
+    if fmt == "webm":
+        encoder = "libvpx-vp9"
+    else:
+        gpu = "nvenc" if use_nvenc else None
+        encoder = f"{codec}{'_' + gpu if gpu else ''}" if gpu else ("libx265" if codec == "hevc" else "libx264")
+    print(f"\nFound {len(files)} video(s). {fmt} @ {resolution}, codec={codec}, quality={quality}, "
           f"speed={speed}x, encoder={encoder}")
 
     success = 0
     for f in files:
         output_file = build_output_name(f, fmt, speed)
         cmd = build_ffmpeg_cmd(f, output_file, fmt=fmt, speed=speed,
-                               quality=quality, resolution=resolution, use_nvenc=use_nvenc)
+                               quality=quality, resolution=resolution,
+                               use_nvenc=use_nvenc, codec=codec)
         print(f"\nConverting: {f.name}")
         print(" ".join(shlex.quote(x) for x in cmd))
         if subprocess.run(cmd).returncode == 0:

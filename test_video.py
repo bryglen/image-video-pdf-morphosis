@@ -49,6 +49,43 @@ def test_quality_maps_to_crf():
     assert "-crf 18" in _joined(fmt="mp4", quality="nearlossless", resolution="original")
 
 
+def test_hevc_uses_libx265_by_default():
+    cmd = _joined(fmt="mp4", codec="hevc", resolution="original")
+    assert "libx265" in cmd
+    assert "libx264" not in cmd
+
+
+def test_hevc_adds_hvc1_tag_for_apple_compat():
+    assert "-tag:v hvc1" in _joined(fmt="mp4", codec="hevc", resolution="original")
+
+
+def test_h264_has_no_hvc1_tag():
+    assert "hvc1" not in _joined(fmt="mp4", codec="h264", resolution="original")
+
+
+def test_hevc_crf_map_differs_from_h264():
+    assert "-crf 28" in _joined(fmt="mp4", codec="hevc", quality="balanced", resolution="original")
+    assert "-crf 22" in _joined(fmt="mp4", codec="hevc", quality="nearlossless", resolution="original")
+
+
+def test_hevc_videotoolbox_encoder():
+    cmd = _joined(fmt="mp4", codec="hevc", resolution="original", use_videotoolbox=True)
+    assert "hevc_videotoolbox" in cmd
+    assert "-tag:v hvc1" in cmd
+
+
+def test_hevc_nvenc_encoder():
+    assert "hevc_nvenc" in _joined(fmt="mp4", codec="hevc", resolution="original", use_nvenc=True)
+
+
+def test_webm_ignores_codec():
+    # WebM is always VP9 — an HEVC request must not change the encoder or add hvc1.
+    cmd = _joined(fmt="webm", codec="hevc", resolution="original")
+    assert "libvpx-vp9" in cmd
+    assert "hvc1" not in cmd
+    assert "libx265" not in cmd
+
+
 def test_default_resolution_is_original():
     # No resolution arg -> defaults to "original" -> no scale filter (maintain source).
     cmd = " ".join(build_ffmpeg_cmd("in.mp4", "out.mp4", dims=(3840, 2160)))

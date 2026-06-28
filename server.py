@@ -4,7 +4,10 @@ from flask import Flask, request, send_file, jsonify
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from image_convert.image_converter import convert_image, OUTPUT_FORMATS, MIME_TYPES
-from video_convert.convert_video import build_ffmpeg_cmd, VIDEO_MIME, has_videotoolbox
+from video_convert.convert_video import (
+    build_ffmpeg_cmd, VIDEO_MIME, has_videotoolbox, has_hevc_videotoolbox,
+    has_hevc_encoder,
+)
 from pdf_convert.pdf_converter import (
     images_to_pdf, pdf_to_images,
     parse_page_ranges, pdf_page_count, pdf_thumbnails, extract_pdf_pages,
@@ -20,6 +23,8 @@ app = Flask(__name__, static_folder=".")
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024 * 1024  # 5 GB
 
 _USE_VIDEOTOOLBOX = has_videotoolbox()
+_USE_HEVC_VIDEOTOOLBOX = has_hevc_videotoolbox()
+_HAS_HEVC = has_hevc_encoder()
 
 # All converter temp dirs live in a project-local tmp/ folder so cleanup is
 # unambiguous and self-contained (not scattered across the system temp dir).
@@ -101,10 +106,12 @@ def _parse_time(line: str):
     return int(m[1]) * 3600 + int(m[2]) * 60 + float(m[3]) if m else None
 
 
-def _run_video_job(job_id, input_path, output_path, out_fmt, speed, quality, resolution):
+def _run_video_job(job_id, input_path, output_path, out_fmt, speed, quality, resolution, codec):
+    # HEVC and H.264 have separate VideoToolbox encoders; pick the one that exists.
+    use_vt = _USE_HEVC_VIDEOTOOLBOX if codec == "hevc" else _USE_VIDEOTOOLBOX
     cmd = build_ffmpeg_cmd(input_path, output_path, fmt=out_fmt, speed=speed,
                            quality=quality, resolution=resolution,
-                           use_videotoolbox=_USE_VIDEOTOOLBOX)
+                           use_videotoolbox=use_vt, codec=codec)
     proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL, text=True)
 
     # Register the process so /cancel can terminate it. If the job was cancelled
@@ -148,6 +155,12 @@ def video_convert():
     speed   = float(request.form.get("speed", "1.0"))
     quality = request.form.get("quality", "balanced")
     resolution = request.form.get("resolution", "original").lower()
+    codec   = request.form.get("codec", "h264").lower()
+    if codec not in ("h264", "hevc"):
+        codec = "h264"
+    if codec == "hevc" and out_fmt != "webm" and not _HAS_HEVC:
+        return jsonify(error="HEVC not supported by this FFmpeg build. "
+                             "Install libx265 (e.g. brew install ffmpeg) or use H.264."), 400
 
     tmpdir      = tempfile.mkdtemp(dir=TEMP_BASE)
     fname       = Path(file.filename).name if file.filename else "video.mp4"
@@ -169,7 +182,7 @@ def video_convert():
 
     threading.Thread(
         target=_run_video_job,
-        args=(job_id, input_path, output_path, out_fmt, speed, quality, resolution),
+        args=(job_id, input_path, output_path, out_fmt, speed, quality, resolution, codec),
         daemon=True,
     ).start()
 

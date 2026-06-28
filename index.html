@@ -410,6 +410,15 @@
       </div>
     </div>
 
+    <div class="options-row" id="vidCodecRow">
+      <span class="option-label">Codec</span>
+      <div class="fmt-group" id="vidCodecGroup">
+        <button class="fmt-btn active" data-codec="h264">H.264</button>
+        <button class="fmt-btn" data-codec="hevc">HEVC</button>
+      </div>
+      <span class="drop-hint" id="vidCodecHint" style="margin-left:2px"></span>
+    </div>
+
     <div class="options-row">
       <span class="option-label">Speed</span>
       <div class="fmt-group" id="vidSpeedGroup">
@@ -777,13 +786,29 @@ function vidTriggerDownload(item) {
   document.body.appendChild(a); a.click(); a.remove();
 }
 
-let vidFmt = 'mp4', vidSpeed = '1', vidQuality = 'balanced', vidRes = 'original';
+let vidFmt = 'mp4', vidCodec = 'h264', vidSpeed = '1', vidQuality = 'balanced', vidRes = 'original';
 let vidFiles = [], vidNextId = 0;
 
-makeOptionPicker(document.getElementById('vidFmtGroup'),   btn => { vidFmt     = btn.dataset.fmt;     });
+const vidCodecRow  = document.getElementById('vidCodecRow');
+const vidCodecHint = document.getElementById('vidCodecHint');
+
+function vidSyncCodec() {
+  const isWebm = vidFmt === 'webm';
+  // WebM is always VP9 — the codec selector doesn't apply, so grey it out.
+  vidCodecRow.style.opacity = isWebm ? '0.4' : '';
+  vidCodecRow.style.pointerEvents = isWebm ? 'none' : '';
+  if (isWebm) { vidCodecHint.textContent = 'WebM uses VP9'; return; }
+  vidCodecHint.textContent = vidCodec === 'hevc'
+    ? 'Smaller files · plays on iPhone & modern devices'
+    : 'Most compatible';
+}
+
+makeOptionPicker(document.getElementById('vidFmtGroup'),   btn => { vidFmt = btn.dataset.fmt; vidSyncCodec(); });
+makeOptionPicker(document.getElementById('vidCodecGroup'), btn => { vidCodec = btn.dataset.codec; vidSyncCodec(); });
 makeOptionPicker(document.getElementById('vidSpeedGroup'), btn => { vidSpeed   = btn.dataset.speed;   });
 makeOptionPicker(document.getElementById('vidQualGroup'),  btn => { vidQuality = btn.dataset.quality; });
 makeOptionPicker(document.getElementById('vidResGroup'), btn => { vidRes = btn.dataset.res; });
+vidSyncCodec();
 
 vidDropZone.addEventListener('dragover',  e => { e.preventDefault(); vidDropZone.classList.add('drag-over'); });
 vidDropZone.addEventListener('dragleave', () => vidDropZone.classList.remove('drag-over'));
@@ -867,6 +892,7 @@ async function vidConvert(item) {
   const form = new FormData();
   form.append('file', item.file);
   form.append('format', vidFmt);
+  form.append('codec', vidCodec);
   form.append('speed', vidSpeed);
   form.append('quality', vidQuality);
     form.append('resolution', vidRes);
