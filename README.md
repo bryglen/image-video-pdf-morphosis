@@ -44,8 +44,10 @@ pip install pillow pillow-heif flask pymupdf
 
 ## Options that apply to every tab
 
-- **Overwrite originals** (top-right toggle) — when checked, downloads drop the `_converted` suffix (e.g. `photo.jpg` instead of `photo_converted.jpg`). Choice persists across sessions.
+- **Overwrite originals** (in each tab's Files box, next to Convert all) — when checked, downloads drop the `_converted` suffix (e.g. `photo.jpg` instead of `photo_converted.jpg`). The toggle is shared across tabs and persists across sessions.
 - **Per-file Convert button** — every queued file has its own Convert button, so you can convert one file or re-convert after changing settings without removing and re-adding it. The button disables while that file is processing.
+- **Convert all / Download all** (Image & Video tabs) — Convert all processes the queue concurrently; Download all saves every finished file at once (staggered, so allow multiple downloads when the browser asks). Download all is disabled until at least one file is done.
+- **Total saved** summary (footer) — running, session-only total of bytes saved across all converted images, videos, and PDFs; flips to "larger" if the output exceeds the input.
 - **Dark / light theme** toggle (top-right), remembered across sessions.
 
 ---
@@ -56,10 +58,11 @@ pip install pillow pillow-heif flask pymupdf
 
 **Output:** JPG, PNG, WebP, AVIF, TIFF, BMP, HEIC/HEIF
 
-- Preserves EXIF metadata and ICC color profiles
+- Preserves EXIF, XMP, and ICC color profiles (carried into the output formats that support them)
 - Alpha channels flattened to white when converting to JPG or BMP
 - WebP lossless mode available
 - Optional downscaling: Original, 4K, 1440p, 1080p, 720p, 480p (aspect ratio preserved, never upscales)
+- **Metadata panel** — expand the collapsible *Metadata* on any queued image to see its EXIF creation date, GPS location (with a map link), camera make/model, exposure (shutter · aperture · ISO · focal length), dimensions, format, and color profile. Read on demand (lazy), nothing uploads until you expand it.
 
 | Format | Notes |
 |--------|-------|
@@ -76,13 +79,16 @@ pip install pillow pillow-heif flask pymupdf
 
 **Input:** MP4, MOV, AVI, MKV, WebM, M4V
 
-**Output:** MP4 (H.264), WebM (VP9), MOV (H.264)
+**Output:** MP4 (H.264 / HEVC), MOV (H.264 / HEVC), WebM (VP9)
 
+- **Codec**: H.264 (default, plays everywhere) or HEVC / H.265 (~30–50% smaller at the same quality). HEVC output is tagged `hvc1` so iPhone, QuickTime, and Photos will play it. The selector is greyed out for WebM (always VP9). If the FFmpeg build has no HEVC encoder, the server returns a clear message instead of failing cryptically.
 - Selectable resolution: Original, 4K, 1440p, 1080p, 720p, 480p (aspect ratio preserved, never upscales; default Original / maintain)
 - Playback speed: 0.5×, 1×, 1.25×, 1.5×, 2×, 2.5×
-- Quality: Near-lossless, Balanced, Small (H.264 CRF 18/23/28; VP9/WebM CRF 20/33/43)
-- **Hardware acceleration**: H.264 (MP4/MOV) auto-uses Apple VideoToolbox when available (much faster); falls back to libx264 otherwise. WebM/VP9 is always software-encoded.
+- Quality: Near-lossless, Balanced, Small (H.264 CRF 18/23/28; HEVC CRF 22/28/32; VP9/WebM CRF 20/33/43)
+- **Hardware acceleration**: H.264 and HEVC (MP4/MOV) auto-use Apple VideoToolbox when available (much faster); fall back to libx264 / libx265 otherwise. WebM/VP9 is always software-encoded.
+- **Metadata preserved**: creation date, GPS location, and camera make/model carry over to the converted file, so videos land on their original date and place when imported to iPhone/Android Photos. FFmpeg drops these by default — they're restored via `-map_metadata`, `-movflags use_metadata_tags`, an explicit `creation_time`, and lifting the iPhone moov-level location box that macOS/Photos actually read.
 - **iPhone / AirDrop compatible**: MP4 and MOV output is encoded `yuv420p` so it imports into Photos.
+- **Metadata panel** — expand the collapsible *Metadata* on any queued video to see creation date, GPS location (with a map link), dimensions, duration, codec, and camera make/model. Lazy — only probed when expanded.
 - Audio is synced with video speed; videos with no audio track are handled, and at 1× speed no needless speed re-encode is applied.
 - Real conversion progress shown in the UI, with a **Cancel** button to abort an in-progress job (stops FFmpeg and discards the temp files).
 
@@ -115,7 +121,7 @@ source image_convert/.venv/bin/activate   # activate the venv for dependencies
 # Image — batch convert a file or folder (prompts for format, resolution, etc.)
 python3 image_convert/image_converter.py
 
-# Video — compress / resize / speed-adjust a file or folder (prompts for format, quality, resolution, speed)
+# Video — compress / resize / speed-adjust a file or folder (prompts for format, codec, quality, resolution, speed)
 python3 video_convert/convert_video.py
 
 # PDF — images<->pdf, pdf->images, extract pages, or compress (prompts for direction; 3 = extract pages, 4 = compress)

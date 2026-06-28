@@ -201,14 +201,6 @@
     }
     .pdf-sel-btn:hover { background: var(--surface-3); color: var(--text); }
 
-    .global-options {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      width: 100%;
-      max-width: 680px;
-      padding: 0 0 10px;
-    }
     .total-saved { margin-top: 28px; font-size: 0.875rem; color: var(--text-muted); font-weight: 600; text-align: center; }
     .total-saved .ts-num { color: #22c55e; }
     .total-saved.warn .ts-num { color: #f97316; }
@@ -225,7 +217,7 @@
     .convert-all-btn:hover    { background: #1d4ed8; }
     .convert-all-btn:disabled { background: var(--surface-2); color: var(--text-faint); cursor: not-allowed; }
 
-    .queue-actions { display: flex; gap: 8px; align-items: center; }
+    .queue-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
     .download-all-btn {
       background: #22c55e; color: #000; border: none; border-radius: 8px;
       padding: 7px 16px; font-size: 0.825rem; font-weight: 600; cursor: pointer;
@@ -349,12 +341,6 @@
   <button class="tab-btn" data-tab="video">&#127916; Video</button>
   <button class="tab-btn" data-tab="pdf">&#128196; PDF</button>
 </div>
-<div class="global-options">
-  <label class="lossless-wrap visible">
-    <input type="checkbox" id="overwriteCheck" />
-    Overwrite originals
-  </label>
-</div>
 
 <!-- IMAGE TAB -->
 <div id="tab-image" class="tab-panel active">
@@ -399,6 +385,7 @@
       <div class="queue-header">
         <span class="queue-title">Files</span>
         <div class="queue-actions">
+          <label class="lossless-wrap visible"><input type="checkbox" class="overwrite-check" /> Overwrite originals</label>
           <button class="download-all-btn" id="imgDownloadAllBtn" disabled>Download all</button>
           <button class="convert-all-btn" id="imgConvertAllBtn">Convert all</button>
         </div>
@@ -473,6 +460,7 @@
       <div class="queue-header">
         <span class="queue-title">Files</span>
         <div class="queue-actions">
+          <label class="lossless-wrap visible"><input type="checkbox" class="overwrite-check" /> Overwrite originals</label>
           <button class="download-all-btn" id="vidDownloadAllBtn" disabled>Download all</button>
           <button class="convert-all-btn" id="vidConvertAllBtn">Convert all</button>
         </div>
@@ -557,7 +545,10 @@
     <div class="queue" id="pdfQueue" style="display:none">
       <div class="queue-header">
         <span class="queue-title" id="pdfQueueTitle">Files</span>
-        <button class="convert-all-btn" id="pdfConvertAllBtn">Convert</button>
+        <div class="queue-actions">
+          <label class="lossless-wrap visible"><input type="checkbox" class="overwrite-check" /> Overwrite originals</label>
+          <button class="convert-all-btn" id="pdfConvertAllBtn">Convert</button>
+        </div>
       </div>
       <div class="file-list" id="pdfFileList"></div>
     </div>
@@ -578,13 +569,22 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 });
 
 // ── Overwrite toggle ───────────────────────────────────────────────────────
-const overwriteCheck = document.getElementById('overwriteCheck');
+// One logical setting, surfaced in each tab's Files box; the instances stay in
+// sync and persist across sessions.
+const overwriteChecks = [...document.querySelectorAll('.overwrite-check')];
+function isOverwrite() { return overwriteChecks.some(c => c.checked); }
 (function () {
-  try { overwriteCheck.checked = localStorage.getItem('overwrite') === 'true'; } catch (e) {}
+  let saved = false;
+  try { saved = localStorage.getItem('overwrite') === 'true'; } catch (e) {}
+  overwriteChecks.forEach(c => {
+    c.checked = saved;
+    c.addEventListener('change', () => {
+      const v = c.checked;
+      overwriteChecks.forEach(o => { o.checked = v; });
+      try { localStorage.setItem('overwrite', v); } catch (e) {}
+    });
+  });
 })();
-overwriteCheck.addEventListener('change', () => {
-  try { localStorage.setItem('overwrite', overwriteCheck.checked); } catch (e) {}
-});
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function fmtSize(bytes) {
@@ -778,7 +778,7 @@ async function imgConvert(item) {
     const ext  = imgFmt === 'jpeg' ? 'jpg' : imgFmt;
     if (item.downloadUrl) URL.revokeObjectURL(item.downloadUrl);   // revoke prior blob on re-convert
     item.downloadUrl = URL.createObjectURL(blob);
-    item.downloadName = overwriteCheck.checked ? `${stem}.${ext}` : `${stem}_converted.${ext}`;
+    item.downloadName = isOverwrite() ? `${stem}.${ext}` : `${stem}_converted.${ext}`;
     const a    = Object.assign(document.createElement('a'), { className: 'dl-btn', href: item.downloadUrl, download: item.downloadName, textContent: 'Download' });
     const st   = document.getElementById(`img-st-${item.id}`);
     if (st) { st.innerHTML = ''; st.appendChild(a); }
@@ -822,7 +822,7 @@ function vidUpdateDownloadAll() {
 
 function vidTriggerDownload(item) {
   if (!item.done || !item.jobId) return;
-  const fname = overwriteCheck.checked ? `${item.stem}.${item.outFmt}` : `${item.stem}_converted.${item.outFmt}`;
+  const fname = isOverwrite() ? `${item.stem}.${item.outFmt}` : `${item.stem}_converted.${item.outFmt}`;
   const a = document.createElement('a');
   a.href = `/api/video/download/${item.jobId}?filename=${encodeURIComponent(fname)}`;
   a.download = fname;
@@ -1424,7 +1424,7 @@ async function pdfConvertOne(item) {
   let name = null, res;
   try {
     if (pdfMode === 'img2pdf') {
-      name = item.file.name.replace(/\.[^.]+$/, '') + (overwriteCheck.checked ? '.pdf' : '_converted.pdf');
+      name = item.file.name.replace(/\.[^.]+$/, '') + (isOverwrite() ? '.pdf' : '_converted.pdf');
       res = await fetch('/api/pdf/from-images', { method: 'POST', body: form });
     } else {
       form.append('format', pdfFmt);
@@ -1476,7 +1476,7 @@ async function pdfCompressOne(item) {
     item.done = true;
     item.before = before; item.after = after;
     const stem = item.file.name.replace(/\.[^.]+$/, '');
-    pdfDownloadLink(item.id, blob, overwriteCheck.checked ? `${stem}.pdf` : `${stem}_compressed.pdf`);
+    pdfDownloadLink(item.id, blob, isOverwrite() ? `${stem}.pdf` : `${stem}_compressed.pdf`);
     recomputeTotals();
     const targetMb = parseFloat(tgt);
     if (engine === 'python' && targetMb > 0 && after > targetMb * 1024 * 1024) {
