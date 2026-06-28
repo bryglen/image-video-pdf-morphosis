@@ -203,13 +203,13 @@
 
     .global-options {
       display: flex;
-      justify-content: space-between;
+      justify-content: center;
       align-items: center;
       width: 100%;
       max-width: 680px;
       padding: 0 0 10px;
     }
-    .total-saved { font-size: 0.82rem; color: var(--text-muted); font-weight: 600; }
+    .total-saved { margin-top: 28px; font-size: 0.875rem; color: var(--text-muted); font-weight: 600; text-align: center; }
     .total-saved .ts-num { color: #22c55e; }
     .total-saved.warn .ts-num { color: #f97316; }
 
@@ -333,7 +333,6 @@
   <button class="tab-btn" data-tab="pdf">&#128196; PDF</button>
 </div>
 <div class="global-options">
-  <span class="total-saved" id="totalSaved" style="display:none"></span>
   <label class="lossless-wrap visible">
     <input type="checkbox" id="overwriteCheck" />
     Overwrite originals
@@ -538,6 +537,8 @@
     </div>
   </div>
 </div>
+
+<div class="total-saved" id="totalSaved" style="display:none"></div>
 
 <script>
 // ── Tabs ───────────────────────────────────────────────────────────────────
