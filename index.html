@@ -687,7 +687,7 @@ imgConvertBtn.addEventListener('click', async () => {
   const pending = imgFiles.filter(f => !f.done);
   if (!pending.length) return;
   imgConvertBtn.disabled = true;
-  for (const item of pending) await imgConvert(item);
+  await Promise.all(pending.map(item => imgConvert(item)));
   imgConvertBtn.disabled = false;
 });
 
@@ -883,7 +883,7 @@ vidConvertBtn.addEventListener('click', async () => {
   const pending = vidFiles.filter(f => !f.done && !f.converting);
   if (!pending.length) return;
   vidConvertBtn.disabled = true;
-  for (const item of pending) await vidConvert(item);
+  await Promise.all(pending.map(item => vidConvert(item)));
   vidConvertBtn.disabled = false;
 });
 
