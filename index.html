@@ -243,6 +243,11 @@
       width: 40px; height: 40px; object-fit: cover; border-radius: 6px;
       background: var(--surface-2); flex-shrink: 0;
     }
+    /* Click the thumbnail/icon to open the original file in a new tab. */
+    .file-open { flex-shrink: 0; line-height: 0; cursor: pointer; border-radius: 6px; }
+    .file-open.zoom { cursor: zoom-in; }
+    .file-open:hover .file-thumb,
+    .file-open:hover .file-icon { outline: 2px solid #2563eb; outline-offset: 1px; }
     .file-icon {
       width: 40px; height: 40px; border-radius: 6px; background: var(--surface-2);
       flex-shrink: 0; display: flex; align-items: center; justify-content: center;
@@ -598,6 +603,27 @@ function fmtSize(bytes) {
 }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// True for files an <img> tag can actually render. Browsers (Chrome/Firefox)
+// can't decode HEIC/HEIF or TIFF, so we show an icon placeholder for those.
+function browserCanPreview(file) {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  return !['heic', 'heif', 'tif', 'tiff'].includes(ext);
+}
+function isImageFile(file) {
+  if (file.type.startsWith('image/')) return true;   // HEIC often has no MIME type
+  return /\.(heic|heif|avif|webp|jpe?g|png|tif?f|bmp|gif)$/i.test(file.name);
+}
+// Clickable thumbnail (or icon placeholder for non-previewable formats) that
+// opens the original file in a new tab. `item.objectURL` must already be set.
+function fileThumbHTML(item, fallbackIcon) {
+  const previewable = browserCanPreview(item.file);
+  const inner = previewable
+    ? `<img class="file-thumb" src="${item.objectURL}" alt="" />`
+    : `<div class="file-icon">${fallbackIcon}</div>`;
+  return `<a class="file-open${previewable ? ' zoom' : ''}" href="${item.objectURL}" `
+       + `target="_blank" rel="noopener" title="Open original in a new tab">${inner}</a>`;
+}
+
 // Running summary of bytes saved across every converted file (image + video + PDF).
 // Pure recompute from current item state — handles re-converts and removals for free.
 const totalSavedEl = document.getElementById('totalSaved');
@@ -674,7 +700,7 @@ function imgRenderItem(item) {
   const el = document.createElement('div');
   el.className = 'file-item'; el.id = `img-item-${item.id}`;
   el.innerHTML = `
-    <img class="file-thumb" src="${item.objectURL}" alt="" />
+    ${fileThumbHTML(item, '&#128247;')}
     <div class="file-info">
       <div class="file-name"></div>
       <div class="file-meta" id="img-meta-${item.id}">${fmtSize(item.file.size)}</div>
@@ -1357,13 +1383,11 @@ async function pdfAddPageSection(file) {
 function pdfRenderItem(item) {
   const el = document.createElement('div');
   el.className = 'file-item'; el.id = `pdf-item-${item.id}`;
-  let thumb;
-  if (item.file.type.startsWith('image/')) {
-    item.objectURL = URL.createObjectURL(item.file);
-    thumb = `<img class="file-thumb" src="${item.objectURL}" alt="" />`;
-  } else {
-    thumb = `<div class="file-icon">&#128196;</div>`;
-  }
+  // Object URL lets the user click the thumbnail/icon to open the original.
+  item.objectURL = URL.createObjectURL(item.file);
+  const thumb = isImageFile(item.file)
+    ? fileThumbHTML(item, '&#128247;')   // image (HEIC/TIFF fall back to a camera icon)
+    : `<a class="file-open" href="${item.objectURL}" target="_blank" rel="noopener" title="Open original in a new tab"><div class="file-icon">&#128196;</div></a>`;
   el.innerHTML = `
     ${thumb}
     <div class="file-info">
