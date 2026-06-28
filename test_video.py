@@ -1,7 +1,42 @@
 """Tests for video_convert.convert_video.build_ffmpeg_cmd (dims passed in, so no
 ffprobe/ffmpeg needed). Run: python3 test_video.py"""
 
-from video_convert.convert_video import build_ffmpeg_cmd
+import struct
+import tempfile
+from pathlib import Path
+
+from video_convert.convert_video import (
+    build_ffmpeg_cmd, copy_apple_metadata, _extract_moov_meta,
+)
+
+
+def _atom(typ, payload=b""):
+    return struct.pack(">I", len(payload) + 8) + typ + payload
+
+
+# A moov-level meta box (contents are opaque to the surgery — it copies verbatim).
+_META = _atom(b"meta", b"\x00\x00\x00\x00" + b"keys-and-ilst-with-ISO6709-here")
+
+
+def _write(tmp, name, atoms):
+    p = Path(tmp) / name
+    p.write_bytes(b"".join(atoms))
+    return p
+
+
+def _moov_children(buf):
+    """Yield (type, size) of the moov's direct children."""
+    i = 0
+    while i + 8 <= len(buf):
+        size, typ = struct.unpack(">I", buf[i:i + 8][:4])[0], buf[i + 4:i + 8]
+        if typ == b"moov":
+            inner, end = i + 8, i + size
+            while inner + 8 <= end:
+                csize = struct.unpack(">I", buf[inner:inner + 4])[0]
+                yield buf[inner + 4:inner + 8], csize
+                inner += csize
+            return
+        i += size
 
 
 def _joined(**kw):
@@ -124,18 +159,13 @@ def test_creation_time_explicit_when_provided():
     assert f"creation_time={ts}" in cmd
 
 
-def test_movflags_use_metadata_tags_for_mp4_mov():
-    # Carries custom QuickTime keys (GPS location, make/model) into MP4/MOV output.
-    for fmt in ("mp4", "mov"):
+def test_no_use_metadata_tags_movflag():
+    # use_metadata_tags only writes Apple's custom keys to moov/udta/meta, which
+    # macOS Spotlight/Photos ignore. GPS is restored post-encode by
+    # copy_apple_metadata() instead, so the (misleading) flag must NOT be present.
+    for fmt in ("mp4", "mov", "webm"):
         cmd = build_ffmpeg_cmd("in.mp4", f"out.{fmt}", dims=(1920, 1080), fmt=fmt)
-        assert "-movflags" in cmd, f"-movflags missing for {fmt}"
-        assert cmd[cmd.index("-movflags") + 1] == "use_metadata_tags"
-
-
-def test_no_movflags_for_webm():
-    # -movflags is a mov-muxer option; applying it to a webm output would error.
-    cmd = build_ffmpeg_cmd("in.mp4", "out.webm", dims=(1920, 1080), fmt="webm")
-    assert "use_metadata_tags" not in cmd
+        assert "use_metadata_tags" not in cmd, f"unexpected use_metadata_tags for {fmt}"
 
 
 def test_map_metadata_in_all_formats():
@@ -153,6 +183,74 @@ def test_no_audio_uses_an_and_skips_af():
     assert "-c:a" not in cmd
     # video speed filter still applies even with no audio
     assert "setpts=0.500000*PTS" in cmd
+
+
+def test_copy_apple_metadata_appends_meta_to_moov():
+    # source: ftyp + moov[mvhd, meta];  output (ffmpeg layout): ftyp + mdat + moov[mvhd]
+    with tempfile.TemporaryDirectory() as tmp:
+        src = _write(tmp, "src.mov", [
+            _atom(b"ftyp", b"qt  "),
+            _atom(b"moov", _atom(b"mvhd", b"\x00" * 100) + _META),
+            _atom(b"mdat", b"\x00" * 64),
+        ])
+        out = _write(tmp, "out.mov", [
+            _atom(b"ftyp", b"qt  "),
+            _atom(b"mdat", b"\x11" * 200),
+            _atom(b"moov", _atom(b"mvhd", b"\x00" * 100)),
+        ])
+        before = out.stat().st_size
+        assert copy_apple_metadata(src, out, "mp4") is True
+        buf = out.read_bytes()
+        # output grew by exactly the meta box, and moov now contains a meta child
+        assert out.stat().st_size == before + len(_META)
+        children = list(_moov_children(buf))
+        assert (b"meta", len(_META)) in children
+        # the moov size field was updated so the container still parses to EOF
+        assert buf.endswith(_META)
+
+
+def test_copy_apple_metadata_noop_for_webm():
+    with tempfile.TemporaryDirectory() as tmp:
+        src = _write(tmp, "src.mov", [_atom(b"moov", _META)])
+        out = _write(tmp, "out.webm", [_atom(b"moov", b"\x00" * 32)])
+        before = out.read_bytes()
+        assert copy_apple_metadata(src, out, "webm") is False
+        assert out.read_bytes() == before  # untouched
+
+
+def test_copy_apple_metadata_noop_without_source_meta():
+    # A non-iPhone source with no moov/meta -> nothing to copy, output untouched.
+    with tempfile.TemporaryDirectory() as tmp:
+        src = _write(tmp, "src.mov", [_atom(b"moov", _atom(b"mvhd", b"\x00" * 50))])
+        out = _write(tmp, "out.mov", [
+            _atom(b"mdat", b"\x11" * 100),
+            _atom(b"moov", _atom(b"mvhd", b"\x00" * 50)),
+        ])
+        before = out.read_bytes()
+        assert copy_apple_metadata(src, out, "mp4") is False
+        assert out.read_bytes() == before
+
+
+def test_copy_apple_metadata_bails_when_moov_not_last():
+    # If something follows moov (moov not the last atom), appending is unsafe -> bail.
+    with tempfile.TemporaryDirectory() as tmp:
+        src = _write(tmp, "src.mov", [_atom(b"moov", _META)])
+        out = _write(tmp, "out.mov", [
+            _atom(b"moov", _atom(b"mvhd", b"\x00" * 50)),  # moov BEFORE mdat
+            _atom(b"mdat", b"\x11" * 100),
+        ])
+        before = out.read_bytes()
+        assert copy_apple_metadata(src, out, "mp4") is False
+        assert out.read_bytes() == before
+
+
+def test_extract_moov_meta_returns_box_verbatim():
+    with tempfile.TemporaryDirectory() as tmp:
+        src = _write(tmp, "src.mov", [
+            _atom(b"ftyp", b"qt  "),
+            _atom(b"moov", _atom(b"mvhd", b"\x00" * 40) + _META),
+        ])
+        assert _extract_moov_meta(src) == _META
 
 
 if __name__ == "__main__":

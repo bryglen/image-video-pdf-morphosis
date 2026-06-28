@@ -6,6 +6,7 @@ standalone: python video_convert/convert_video.py
 import json
 import re
 import shlex
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -169,6 +170,129 @@ def probe_metadata(path):
     return meta
 
 
+# ── Apple/QuickTime metadata preservation ────────────────────────────────────
+#
+# iPhone videos store GPS as the key com.apple.quicktime.location.ISO6709 in the
+# *moov-level* `meta` box (moov → meta → keys/ilst). macOS Spotlight/Photos read
+# location only from there. FFmpeg, even with -map_metadata 0 -movflags
+# use_metadata_tags, writes those custom keys to moov → udta → meta instead, which
+# Apple ignores — so the converted file shows no location.
+#
+# The fix: lift the source's moov-level `meta` box verbatim and append it as the
+# output moov's last child. The box is self-contained (a key index + values, no
+# byte-offset references), so a verbatim copy is portable across containers.
+# Verified with `mdimport -t` (the importer macOS actually runs).
+
+def _read_atom_header(f):
+    """Read an atom header at the current position. Return (size, type, header_len)
+    or None at EOF/truncation. Handles 64-bit extended sizes (size==1)."""
+    hdr = f.read(8)
+    if len(hdr) < 8:
+        return None
+    size = struct.unpack(">I", hdr[:4])[0]
+    typ = hdr[4:8]
+    hl = 8
+    if size == 1:  # 64-bit size follows the type
+        ext = f.read(8)
+        if len(ext) < 8:
+            return None
+        size = struct.unpack(">Q", ext)[0]
+        hl = 16
+    return size, typ, hl
+
+
+def _find_top_atom(f, want, file_size):
+    """Return (offset, size, header_len) of the first top-level atom of type
+    `want`, or None. Seeks only over atom headers — never reads payloads."""
+    f.seek(0)
+    while f.tell() < file_size:
+        off = f.tell()
+        h = _read_atom_header(f)
+        if h is None:
+            break
+        size, typ, hl = h
+        if size <= 0:  # size 0 means "extends to EOF"
+            size = file_size - off
+        if typ == want:
+            return off, size, hl
+        f.seek(off + size)
+    return None
+
+
+def _extract_moov_meta(path):
+    """Return the bytes of the moov-level `meta` box from a QuickTime/MP4 file, or
+    None if there's no moov or no direct `meta` child (e.g. a non-iPhone source)."""
+    path = Path(path)
+    file_size = path.stat().st_size
+    with open(path, "rb") as f:
+        moov = _find_top_atom(f, b"moov", file_size)
+        if not moov:
+            return None
+        moov_off, moov_size, moov_hl = moov
+        end = moov_off + moov_size
+        f.seek(moov_off + moov_hl)
+        while f.tell() < end:
+            off = f.tell()
+            h = _read_atom_header(f)
+            if h is None:
+                break
+            csize, ctyp, _ = h
+            if csize <= 0:
+                csize = end - off
+            if ctyp == b"meta":
+                f.seek(off)
+                return f.read(csize)
+            f.seek(off + csize)
+    return None
+
+
+def copy_apple_metadata(src_path, out_path, fmt):
+    """Restore Apple/QuickTime location + camera metadata into a converted MP4/MOV.
+
+    Lifts the source's moov-level `meta` box (GPS, make, model, creationdate) and
+    appends it as the output moov's last child so macOS reads it. Best-effort and
+    non-destructive: returns True on success, False (no change) for webm, a source
+    without moov/meta, or an output whose layout isn't the expected `… mdat, moov`
+    (so chunk offsets in stco/co64 can never be invalidated). Any error is swallowed.
+    """
+    if fmt == "webm":
+        return False
+    try:
+        meta = _extract_moov_meta(src_path)
+        if not meta:
+            return False
+        out_path = Path(out_path)
+        out_size = out_path.stat().st_size
+        with open(out_path, "r+b") as f:
+            moov = _find_top_atom(f, b"moov", out_size)
+            mdat = _find_top_atom(f, b"mdat", out_size)
+            if not moov:
+                return False
+            moov_off, moov_size, moov_hl = moov
+            # Safe only when moov is the LAST atom and sits after mdat: appending to
+            # moov's end == the file's end, and mdat stays put, so every stco/co64
+            # chunk offset (which points into the unmoved mdat) remains valid. This
+            # is ffmpeg's default (non-faststart) layout; bail otherwise.
+            if moov_off + moov_size != out_size:
+                return False
+            if mdat and mdat[0] > moov_off:
+                return False
+            new_size = moov_size + len(meta)
+            if moov_hl == 8 and new_size > 0xFFFFFFFF:
+                return False  # would need a 64-bit size box; moov metadata is tiny
+            if moov_hl == 8:
+                f.seek(moov_off)
+                f.write(struct.pack(">I", new_size))
+            else:
+                f.seek(moov_off + 8)
+                f.write(struct.pack(">Q", new_size))
+            f.seek(0, 2)  # append at EOF, which is moov's (new) end
+            f.write(meta)
+        return True
+    except Exception:
+        return False
+
+
 def speed_filters(speed):
     """Return (video_filter, audio_filter) for a playback-speed change."""
     vf = f"setpts={1 / speed:.6f}*PTS"
@@ -249,12 +373,12 @@ def build_ffmpeg_cmd(input_path, output_path, fmt="mp4", speed=1.0,
             # 'hev1', which iPhone/Photos refuse to open).
             vcodec += ["-tag:v", "hvc1"]
 
+    # NOTE: GPS location and other com.apple.quicktime.* keys are NOT preserved by
+    # ffmpeg here. -movflags use_metadata_tags only carries them into moov/udta/meta,
+    # which macOS Spotlight/Photos ignore — they read the location key from the
+    # moov-level meta box. We restore that box verbatim after encoding; see
+    # copy_apple_metadata().
     cmd = ["ffmpeg", "-y", "-i", str(input_path), "-map_metadata", "0"]
-    if fmt != "webm":
-        # Carry custom QuickTime keys (GPS location, make/model, etc.) into the
-        # MP4/MOV output. Without this the mov muxer drops every com.apple.quicktime.*
-        # key even with -map_metadata 0. (Not a valid flag for the webm muxer.)
-        cmd += ["-movflags", "use_metadata_tags"]
     if creation_time:
         cmd += ["-metadata", f"creation_time={creation_time}"]
     if vf_parts:
@@ -367,6 +491,8 @@ def main():
         print(" ".join(shlex.quote(x) for x in cmd))
         if subprocess.run(cmd).returncode == 0:
             success += 1
+            if copy_apple_metadata(f, output_file, fmt):
+                print("  (preserved GPS/QuickTime metadata)")
             print(f"Done: {output_file.name}")
         else:
             print(f"Failed: {f.name}")

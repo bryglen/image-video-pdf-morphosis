@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from image_convert.image_converter import convert_image, OUTPUT_FORMATS, MIME_TYPES
 from video_convert.convert_video import (
     build_ffmpeg_cmd, VIDEO_MIME, has_videotoolbox, has_hevc_videotoolbox,
-    has_hevc_encoder, probe_metadata,
+    has_hevc_encoder, probe_metadata, copy_apple_metadata,
 )
 from pdf_convert.pdf_converter import (
     images_to_pdf, pdf_to_images,
@@ -140,6 +140,9 @@ def _run_video_job(job_id, input_path, output_path, out_fmt, speed, quality, res
         if job is None or job.get("cancelled"):
             return  # cancel route owns cleanup
         if proc.returncode == 0:
+            # FFmpeg drops the iPhone GPS/QuickTime metadata that macOS reads;
+            # restore it before reporting the (slightly larger) output size.
+            copy_apple_metadata(input_path, output_path, out_fmt)
             job.update(status="done", progress=100, after_size=output_path.stat().st_size)
         else:
             job.update(status="error", error="FFmpeg conversion failed")
