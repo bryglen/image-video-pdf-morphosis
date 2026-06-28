@@ -1,4 +1,4 @@
-import io, sys, re, uuid, shutil, threading, subprocess, tempfile, zipfile, base64
+import io, sys, re, uuid, shutil, threading, subprocess, tempfile, zipfile, base64, time
 from pathlib import Path
 from flask import Flask, request, send_file, jsonify
 
@@ -50,6 +50,49 @@ _sweep_temp_base()
 
 _jobs: dict = {}
 _jobs_lock = threading.Lock()
+
+CLEANUP_INTERVAL = 300   # run the periodic sweep every 5 minutes
+JOB_MAX_AGE = 300        # delete non-running job dirs older than 5 minutes
+
+
+def _sweep_stale_jobs():
+    """Delete tmp job dirs (uploaded input + converted output) no longer needed.
+
+    Removes any job dir older than JOB_MAX_AGE that isn't actively converting:
+    converted-but-never-downloaded jobs, errored jobs, and crash orphans — so a
+    long-running server doesn't accumulate files. In-progress conversions are
+    never touched; downloaded jobs are already cleaned 60s after download.
+    """
+    now = time.time()
+    with _jobs_lock:
+        running_dirs = {j.get("tmpdir") for j in _jobs.values()
+                        if j.get("status") == "running"}
+    for child in TEMP_BASE.iterdir():
+        if not child.is_dir() or str(child) in running_dirs:
+            continue
+        try:
+            if now - child.stat().st_mtime < JOB_MAX_AGE:
+                continue
+        except OSError:
+            continue
+        shutil.rmtree(child, ignore_errors=True)
+    # Drop tracking entries whose dir is gone.
+    with _jobs_lock:
+        for jid, v in list(_jobs.items()):
+            td = v.get("tmpdir")
+            if td and not Path(td).exists():
+                _jobs.pop(jid, None)
+
+
+def _start_periodic_cleanup():
+    def _loop():
+        while True:
+            time.sleep(CLEANUP_INTERVAL)
+            try:
+                _sweep_stale_jobs()
+            except Exception:
+                pass
+    threading.Thread(target=_loop, daemon=True).start()
 
 
 @app.route("/")
@@ -534,4 +577,5 @@ def pdf_compress_route():
 
 
 if __name__ == "__main__":
+    _start_periodic_cleanup()
     app.run(debug=False, port=5002, threaded=True)

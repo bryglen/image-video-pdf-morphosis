@@ -156,6 +156,7 @@ tools/
 Video conversion keeps each job's upload + output in a per-job folder under the project-local `tmp/` directory until you download it (cleaned 60s after download). To avoid leftovers from crashes or never-downloaded jobs:
 
 - The server **sweeps `tmp/` on startup**.
+- While running, the server **sweeps every 5 minutes**, deleting any job folder (input + converted output) older than 5 minutes that isn't actively converting — so a long-running server doesn't accumulate files. In-progress conversions are never touched. Note: a converted video you don't download within ~5–10 minutes will be removed and its download link will 404 — re-convert if needed.
 - `start.sh` and `stop.sh` run the cleanup automatically.
 - Run it manually any time: `./clean_temp.sh` (add `--dry-run` to preview, `-y` to skip the prompt). It also clears legacy orphans from the system temp dir.
 
