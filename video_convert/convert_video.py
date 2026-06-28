@@ -3,6 +3,7 @@
 Imported by the web server (build_ffmpeg_cmd, VIDEO_MIME) and runnable
 standalone: python video_convert/convert_video.py
 """
+import json
 import re
 import shlex
 import subprocess
@@ -110,6 +111,62 @@ def probe_creation_time(path):
         return val if val else None
     except Exception:
         return None
+
+
+def probe_metadata(path):
+    """Return a dict of human-relevant metadata for a video, or {} on failure.
+
+    Keys (any may be absent): creation_time, location, make, model,
+    dimensions, duration (float seconds), codec, size (bytes).
+    """
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-print_format", "json",
+             "-show_format", "-show_streams", str(path)],
+            capture_output=True, text=True, check=True,
+        )
+        data = json.loads(out.stdout)
+    except Exception:
+        return {}
+
+    fmt = data.get("format", {})
+    tags = {k.lower(): v for k, v in (fmt.get("tags") or {}).items()}
+    vstream = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), None)
+
+    meta = {}
+    # Prefer Apple's local-timezone creationdate; fall back to standard UTC creation_time.
+    if tags.get("com.apple.quicktime.creationdate"):
+        meta["creation_time"] = tags["com.apple.quicktime.creationdate"]
+    elif tags.get("creation_time"):
+        meta["creation_time"] = tags["creation_time"]
+
+    loc = tags.get("com.apple.quicktime.location.iso6709") or tags.get("location")
+    if loc:
+        meta["location"] = loc
+    if tags.get("com.apple.quicktime.make"):
+        meta["make"] = tags["com.apple.quicktime.make"]
+    if tags.get("com.apple.quicktime.model"):
+        meta["model"] = tags["com.apple.quicktime.model"]
+
+    dur = fmt.get("duration")
+    if dur:
+        try:
+            meta["duration"] = float(dur)
+        except ValueError:
+            pass
+    size = fmt.get("size")
+    if size:
+        try:
+            meta["size"] = int(size)
+        except ValueError:
+            pass
+    if vstream:
+        w, h = vstream.get("width"), vstream.get("height")
+        if w and h:
+            meta["dimensions"] = f"{w}x{h}"
+        if vstream.get("codec_name"):
+            meta["codec"] = vstream["codec_name"]
+    return meta
 
 
 def speed_filters(speed):

@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from image_convert.image_converter import convert_image, OUTPUT_FORMATS, MIME_TYPES
 from video_convert.convert_video import (
     build_ffmpeg_cmd, VIDEO_MIME, has_videotoolbox, has_hevc_videotoolbox,
-    has_hevc_encoder,
+    has_hevc_encoder, probe_metadata,
 )
 from pdf_convert.pdf_converter import (
     images_to_pdf, pdf_to_images,
@@ -143,6 +143,23 @@ def _run_video_job(job_id, input_path, output_path, out_fmt, speed, quality, res
             job.update(status="done", progress=100, after_size=output_path.stat().st_size)
         else:
             job.update(status="error", error="FFmpeg conversion failed")
+
+
+@app.route("/api/video/probe", methods=["POST"])
+def video_probe():
+    if "file" not in request.files:
+        return jsonify(error="No file provided"), 400
+    file = request.files["file"]
+    tmpdir = tempfile.mkdtemp(dir=TEMP_BASE)
+    try:
+        fname = Path(file.filename).name if file.filename else "video.mp4"
+        path = Path(tmpdir) / fname
+        file.save(str(path))
+        return jsonify(probe_metadata(path))
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 @app.route("/api/video/convert", methods=["POST"])

@@ -244,6 +244,7 @@
       display: flex;
       align-items: center;
       gap: 12px;
+      flex-wrap: wrap;
     }
 
     .file-thumb {
@@ -312,6 +313,22 @@
       height: 100%; background: #f59e0b; width: 0%;
       transition: width 0.3s; border-radius: 2px;
     }
+
+    /* Per-video collapsible metadata */
+    .vid-meta { flex: 0 0 100%; margin-top: 6px; font-size: 0.78rem; }
+    .vid-meta > summary {
+      cursor: pointer; color: var(--text-dim); list-style: none;
+      user-select: none; padding: 3px 0; display: inline-block;
+    }
+    .vid-meta > summary::-webkit-details-marker { display: none; }
+    .vid-meta > summary::before { content: '▸'; display: inline-block; margin-right: 5px; }
+    .vid-meta[open] > summary::before { content: '▾'; }
+    .vid-meta-body { padding: 4px 0 2px; }
+    .vid-meta-row { display: flex; gap: 8px; padding: 2px 0; }
+    .vid-meta-key { color: var(--text-faint); min-width: 92px; flex-shrink: 0; }
+    .vid-meta-val { color: var(--text-muted); word-break: break-word; }
+    .vid-meta-val a { color: #3b82f6; text-decoration: none; }
+    .vid-meta-val a:hover { text-decoration: underline; }
   </style>
   <script>
     // Apply saved theme before paint to avoid a flash (default is dark).
@@ -836,11 +853,93 @@ function vidRenderItem(item) {
     </div>
     <button class="item-convert-btn" id="vid-cv-${item.id}">Convert</button>
     <span class="file-status status-pending" id="vid-st-${item.id}">Pending</span>
-    <button class="remove-btn" data-id="${item.id}">&#x2715;</button>`;
+    <button class="remove-btn" data-id="${item.id}">&#x2715;</button>
+    <details class="vid-meta" id="vid-meta-details-${item.id}">
+      <summary>Metadata</summary>
+      <div class="vid-meta-body" id="vid-meta-body-${item.id}"></div>
+    </details>`;
   el.querySelector('.file-name').textContent = item.file.name;   // textContent, not innerHTML (XSS-safe)
   el.querySelector('.item-convert-btn').addEventListener('click', () => vidConvert(item));
   el.querySelector('.remove-btn').addEventListener('click', () => vidRemove(item.id));
+  // Lazy-probe metadata only on first expand (avoids uploading every video on add).
+  const details = el.querySelector('.vid-meta');
+  details.addEventListener('toggle', () => {
+    if (details.open && !item.metaLoaded) { item.metaLoaded = true; vidLoadMetadata(item); }
+  });
   vidFileList.appendChild(el);
+}
+
+function vidMetaRows(d) {
+  const rows = [];
+  if (d.creation_time)   rows.push(['Created', d.creation_time]);
+  if (d.location)        rows.push(['Location', parseLoc(d.location)]);
+  if (d.dimensions)      rows.push(['Dimensions', d.dimensions]);
+  if (d.duration != null) rows.push(['Duration', fmtDuration(d.duration)]);
+  if (d.codec)           rows.push(['Codec', String(d.codec).toUpperCase()]);
+  if (d.make || d.model) rows.push(['Camera', [d.make, d.model].filter(Boolean).join(' ')]);
+  if (d.size != null)    rows.push(['Size', fmtSize(d.size)]);
+  return rows;
+}
+
+function fmtDuration(s) {
+  s = Math.round(s);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const mm = h ? String(m).padStart(2, '0') : m;
+  return (h ? `${h}:` : '') + `${mm}:${String(sec).padStart(2, '0')}`;
+}
+
+// ISO-6709 "+14.6972+121.0581+056.350/" -> {text, lat, lon}
+function parseLoc(iso) {
+  const m = String(iso).match(/([+-]\d+(?:\.\d+)?)([+-]\d+(?:\.\d+)?)/);
+  if (!m) return { text: String(iso) };
+  return { text: `${(+m[1]).toFixed(5)}, ${(+m[2]).toFixed(5)}`, lat: +m[1], lon: +m[2] };
+}
+
+async function vidLoadMetadata(item) {
+  const body = document.getElementById(`vid-meta-body-${item.id}`);
+  if (!body) return;
+  body.innerHTML = '<span class="drop-hint">Loading…</span>';
+  const fd = new FormData();
+  fd.append('file', item.file);
+  try {
+    const res = await fetch('/api/video/probe', { method: 'POST', body: fd });
+    if (!res.ok) {
+      // A 404/500 returns an HTML error page, not JSON — surface a clean message
+      // instead of letting res.json() throw "Unexpected token '<'".
+      throw new Error('metadata unavailable');
+    }
+    if (!(res.headers.get('content-type') || '').includes('application/json')) {
+      throw new Error('Unexpected non-JSON response from server.');
+    }
+    const data = await res.json();
+    const rows = vidMetaRows(data);
+    body.innerHTML = '';
+    if (!rows.length) { body.innerHTML = '<span class="drop-hint">No metadata found.</span>'; return; }
+    for (const [key, val] of rows) {
+      const row = document.createElement('div');
+      row.className = 'vid-meta-row';
+      const k = document.createElement('span'); k.className = 'vid-meta-key'; k.textContent = key;
+      const v = document.createElement('span'); v.className = 'vid-meta-val';
+      if (val && typeof val === 'object' && val.lat != null) {
+        v.textContent = val.text + ' ';
+        const a = document.createElement('a');
+        a.href = `https://www.google.com/maps?q=${val.lat},${val.lon}`;
+        a.target = '_blank'; a.rel = 'noopener'; a.textContent = '(map)';
+        v.appendChild(a);
+      } else {
+        v.textContent = (val && val.text) ? val.text : val;
+      }
+      row.appendChild(k); row.appendChild(v);
+      body.appendChild(row);
+    }
+  } catch (e) {
+    body.innerHTML = '';
+    const s = document.createElement('span');
+    s.className = 'drop-hint';
+    s.textContent = 'Could not read metadata: ' + e.message;
+    body.appendChild(s);
+    item.metaLoaded = false;   // allow retry on next expand
+  }
 }
 
 function vidRemove(id) {
