@@ -161,6 +161,11 @@ def build_ffmpeg_cmd(input_path, output_path, fmt="mp4", speed=1.0,
             vcodec = ["-c:v", "libx264", "-crf", str(crf), "-preset", "veryfast", "-pix_fmt", "yuv420p"]
 
     cmd = ["ffmpeg", "-y", "-i", str(input_path), "-map_metadata", "0"]
+    if fmt != "webm":
+        # Carry custom QuickTime keys (GPS location, make/model, etc.) into the
+        # MP4/MOV output. Without this the mov muxer drops every com.apple.quicktime.*
+        # key even with -map_metadata 0. (Not a valid flag for the webm muxer.)
+        cmd += ["-movflags", "use_metadata_tags"]
     if creation_time:
         cmd += ["-metadata", f"creation_time={creation_time}"]
     if vf_parts:

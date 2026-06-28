@@ -87,6 +87,20 @@ def test_creation_time_explicit_when_provided():
     assert f"creation_time={ts}" in cmd
 
 
+def test_movflags_use_metadata_tags_for_mp4_mov():
+    # Carries custom QuickTime keys (GPS location, make/model) into MP4/MOV output.
+    for fmt in ("mp4", "mov"):
+        cmd = build_ffmpeg_cmd("in.mp4", f"out.{fmt}", dims=(1920, 1080), fmt=fmt)
+        assert "-movflags" in cmd, f"-movflags missing for {fmt}"
+        assert cmd[cmd.index("-movflags") + 1] == "use_metadata_tags"
+
+
+def test_no_movflags_for_webm():
+    # -movflags is a mov-muxer option; applying it to a webm output would error.
+    cmd = build_ffmpeg_cmd("in.mp4", "out.webm", dims=(1920, 1080), fmt="webm")
+    assert "use_metadata_tags" not in cmd
+
+
 def test_map_metadata_in_all_formats():
     for fmt in ("mp4", "mov", "webm"):
         cmd = build_ffmpeg_cmd("in.mp4", f"out.{fmt}", dims=(1920, 1080), fmt=fmt)
