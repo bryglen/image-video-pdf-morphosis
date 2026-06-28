@@ -78,6 +78,20 @@ def probe_has_audio(path):
         return True
 
 
+def probe_creation_time(path):
+    """Return the creation_time tag string from the source container, or None."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format_tags=creation_time",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+            capture_output=True, text=True, check=True,
+        )
+        val = out.stdout.strip()
+        return val if val else None
+    except Exception:
+        return None
+
+
 def speed_filters(speed):
     """Return (video_filter, audio_filter) for a playback-speed change."""
     vf = f"setpts={1 / speed:.6f}*PTS"
@@ -103,15 +117,20 @@ def _scale_filter(input_path, resolution, dims):
 
 def build_ffmpeg_cmd(input_path, output_path, fmt="mp4", speed=1.0,
                      quality="balanced", resolution="original", dims=None,
-                     use_nvenc=False, use_videotoolbox=False, has_audio=None):
+                     use_nvenc=False, use_videotoolbox=False, has_audio=None,
+                     creation_time=None):
     """Build the ffmpeg command shared by the web server and the CLI.
 
     dims: pass (w, h) to skip the ffprobe call (used in tests); otherwise probed.
     has_audio: pass True/False to skip the audio probe; None probes (or assumes
     True when dims is provided, to keep tests ffprobe-free).
+    creation_time: explicit ISO-8601 string to embed; None probes the source
+    (skipped when dims is provided, to keep tests ffprobe-free).
     """
     if has_audio is None:
         has_audio = True if dims is not None else probe_has_audio(input_path)
+    if creation_time is None and dims is None:
+        creation_time = probe_creation_time(input_path)
     change_speed = abs(speed - 1.0) > 1e-6
 
     # Video filters: scale (optional) + speed (only when actually changing speed,
@@ -142,6 +161,8 @@ def build_ffmpeg_cmd(input_path, output_path, fmt="mp4", speed=1.0,
             vcodec = ["-c:v", "libx264", "-crf", str(crf), "-preset", "veryfast", "-pix_fmt", "yuv420p"]
 
     cmd = ["ffmpeg", "-y", "-i", str(input_path), "-map_metadata", "0"]
+    if creation_time:
+        cmd += ["-metadata", f"creation_time={creation_time}"]
     if vf_parts:
         cmd += ["-vf", ",".join(vf_parts)]
     cmd += vcodec

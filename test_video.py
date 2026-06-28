@@ -80,6 +80,13 @@ def test_audio_codec_present_with_audio():
     assert "-an" not in cmd
 
 
+def test_creation_time_explicit_when_provided():
+    ts = "2024-03-15T10:30:00.000000Z"
+    cmd = build_ffmpeg_cmd("in.mp4", "out.mp4", dims=(1920, 1080), creation_time=ts)
+    assert "-metadata" in cmd
+    assert f"creation_time={ts}" in cmd
+
+
 def test_map_metadata_in_all_formats():
     for fmt in ("mp4", "mov", "webm"):
         cmd = build_ffmpeg_cmd("in.mp4", f"out.{fmt}", dims=(1920, 1080), fmt=fmt)
